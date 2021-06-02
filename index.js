@@ -23,8 +23,12 @@ const pool = new Pool({
 	host: process.env.PG_HOST,
 	database: process.env.PG_UM_DB
 });
-
-const keyFileData = fs.readFileSync(process.env.TLS_KEY_FILEPATH, 'ascii');
+let keyFileData;
+if(process.env.TLS_KEY) {
+	keyFileData = process.env.TLS_KEY.replace(/\\n/g, '\n').replace(/\_\_COLON\_\_/g, ':');
+} else {
+	keyFileData = fs.readFileSync(process.env.TLS_KEY_FILEPATH, 'ascii');
+}
 const private_key = '-----BEGIN RSA PRIVATE KEY-----\n' +
 	(RSAkeyDecrypt(keyFileData, process.env.TLS_KEY_PASSPHRASE, 'base64')).match(/.{1,64}/g).join('\n') +
 	'\n-----END RSA PRIVATE KEY-----';
