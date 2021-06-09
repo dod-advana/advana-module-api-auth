@@ -98,8 +98,7 @@ const ensureAuthenticated = async (req, res, next) => {
 			return res.status(403).send();
 
 		return next();
-	} else 
-	if (process.env.DISABLE_SSO) {
+	} else if (process.env.DISABLE_SSO) {
 		req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'));
 		next();
 	} else {
@@ -149,7 +148,7 @@ const fetchUserInfo = async (userid) => {
 
 const setUserSession = async (req, res) => {
 	try {
-		req.session.user = fetchUserInfo(req.user.id);
+		req.session.user = await fetchUserInfo(req.user.id);
 		req.session.user.session_id = req.sessionID;
 		SSORedirect(req, res);
 	} catch (err) {
@@ -159,7 +158,6 @@ const setUserSession = async (req, res) => {
 
 const SSORedirect = (req, res) => {
 	const alternateOrigin = req.session.AlternateSsoOrigin;
-	console.log(alternateOrigin)
 	if (alternateOrigin) {
 		req.session.AlternateSsoOrigin = undefined;
 		return res.redirect(alternateOrigin + '/');
