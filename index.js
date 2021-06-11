@@ -102,8 +102,7 @@ const ensureAuthenticated = async (req, res, next) => {
 		req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'));
 		next();
 	} else {
-		return res.redirect('/login'); //testing auto login
-		//return res.status(401).send();
+		return res.status(401).send();
 	}
 };
 
