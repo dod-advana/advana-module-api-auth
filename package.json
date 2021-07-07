@@ -1,5 +1,5 @@
 {
-  "name": "advana-api-auth",
+  "name": "@dod-advana/advana-api-auth",
   "version": "0.0.9",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
@@ -7,6 +7,13 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "publish:local": "npm publish --registry http://localhost:4873",
     "publish:aws": "npm publish --registry http://10.194.9.122"
+  },
+  "publishConfig": {
+    "registry":"https://npm.pkg.github.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dod-advana/advana-module-api-auth.git"
   },
   "author": "ralfaro",
   "license": "ISC",
