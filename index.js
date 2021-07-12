@@ -25,7 +25,7 @@ const pool = new Pool({
 });
 
 let keyFileData;
-if(process.env.TLS_KEY) {
+if (process.env.TLS_KEY) {
 	keyFileData = process.env.TLS_KEY.replace(/\\n/g, '\n');
 } else {
 	keyFileData = fs.readFileSync(process.env.TLS_KEY_FILEPATH, 'ascii');
@@ -145,6 +145,33 @@ const fetchUserInfo = async (userid) => {
 };
 
 
+const hasPerm = (desiredPermission, permissions = []) => {
+	if (permissions.length > 0) {
+		if (
+			perm.toUpperCase() === desiredPermission.toUpperCase() ||
+			perm.toUpperCase() === constants.PERMISSIONS.WEBAPP_SUPER_ADMIN.toUpperCase() ||
+			perm.toUpperCase() === constants.PERMISSIONS.UNSUPER_ADMIN.toUpperCase()
+		) {
+			return true;
+		}
+	}
+	return false;
+};
+
+const permCheck = (req, res, next, permissionToCheckFor = []) => {
+	try {
+		for (let p of permissionToCheckFor) {
+			if (hasPerm((req.session.user && req.session.user.perms) ? req.session.user.perms : [], p))
+				return next();
+		}
+	} catch (err) {
+		console.error('Error reading request permissions.');
+		console.error(err);
+		return res.status(403).send();
+	}
+	return res.status(403).send();
+};
+
 // SAML PORTION
 
 
@@ -230,6 +257,7 @@ module.exports = {
 	getAllowedOriginMiddleware,
 	getToken,
 	ensureAuthenticated,
+	permCheck,
 	redisSession,
 	setUserSession,
 	setupSaml
