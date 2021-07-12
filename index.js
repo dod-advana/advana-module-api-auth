@@ -149,8 +149,8 @@ const hasPerm = (desiredPermission, permissions = []) => {
 	if (permissions.length > 0) {
 		if (
 			perm.toUpperCase() === desiredPermission.toUpperCase() ||
-			perm.toUpperCase() === constants.PERMISSIONS.WEBAPP_SUPER_ADMIN.toUpperCase() ||
-			perm.toUpperCase() === constants.PERMISSIONS.UNSUPER_ADMIN.toUpperCase()
+			perm.toUpperCase() === 'WEBAPP SUPER ADMIN' ||
+			perm.toUpperCase() === 'TIER 3 SUPPORT'
 		) {
 			return true;
 		}
