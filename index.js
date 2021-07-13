@@ -145,7 +145,7 @@ const fetchUserInfo = async (userid) => {
 };
 
 
-const hasPerm = (desiredPermission, permissions = []) => {
+const hasPerm = (desiredPermission = "", permissions = []) => {
 	if (permissions.length > 0) {
 		for(let perm of permissions){
 			if (
@@ -162,8 +162,9 @@ const hasPerm = (desiredPermission, permissions = []) => {
 
 const permCheck = (req, res, next, permissionToCheckFor = []) => {
 	try {
+		let permissions = (req.session.user && req.session.user.perms) ? req.session.user.perms: [];
 		for (let p of permissionToCheckFor) {
-			if (hasPerm((req.session.user && req.session.user.perms) ? req.session.user.perms : [], p))
+			if (hasPerm(p, permissions))
 				return next();
 		}
 	} catch (err) {
