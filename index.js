@@ -147,12 +147,14 @@ const fetchUserInfo = async (userid) => {
 
 const hasPerm = (desiredPermission, permissions = []) => {
 	if (permissions.length > 0) {
-		if (
-			perm.toUpperCase() === desiredPermission.toUpperCase() ||
-			perm.toUpperCase() === 'WEBAPP SUPER ADMIN' ||
-			perm.toUpperCase() === 'TIER 3 SUPPORT'
-		) {
-			return true;
+		for(let perm of permissions){
+			if (
+				perm.toUpperCase() === desiredPermission.toUpperCase() ||
+				perm.toUpperCase() === 'WEBAPP SUPER ADMIN' ||
+				perm.toUpperCase() === 'TIER 3 SUPPORT'
+			) {
+				return true;
+			}
 		}
 	}
 	return false;
