@@ -4,7 +4,7 @@
   "description": "contains middleware shared authentication code",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "react-scripts test --passWithNoTests",
     "publish:local": "npm publish --registry http://localhost:4873",
     "publish:aws": "npm publish --registry http://10.194.9.122"
   },
