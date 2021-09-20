@@ -100,7 +100,7 @@ const ensureAuthenticated = async (req, res, next) => {
 			return res.status(403).send();
 
 		return next();
-	} else if (process.env.DISABLE_SSO) {
+	} else if (process.env.DISABLE_SSO === 'true') {
 		req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'));
 		next();
 	} else {
