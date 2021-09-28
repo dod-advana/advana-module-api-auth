@@ -53,13 +53,9 @@ const getToken = (req, res) => {
 const getAllowedOriginMiddleware = (req, res, next) => {
 	try {
 		if (req && req.headers && process.env.APPROVED_API_CALLERS.split(' ').includes(req.hostname)) {
-			console.log(`hostname: ${req.hostname}`);
 			res.setHeader('Access-Control-Allow-Origin', req.hostname);
 		} else if (req && req.headers && process.env.APPROVED_API_CALLERS.split(' ').includes(req.headers.origin)) {
-			console.log(`origin: ${req.headers.origin}`);
 			res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
-		} else {
-			console.log('neither origin nor hostname added')
 		}
 	} catch (e) {
 		//this error happens in docker where origin is undefined
@@ -101,7 +97,7 @@ const redisSession = () => {
 };
 
 const ensureAuthenticated = async (req, res, next) => {
-	console.log(req);
+	// console.log(req);
 	if (req.isAuthenticated()) {
 		if (req.session.user.disabled)
 			return res.status(403).send();
