@@ -1,9 +1,10 @@
 {
   "name": "@dod-advana/advana-api-auth",
-  "version": "0.0.9",
+  "version": "0.0.15",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
   "scripts": {
+   "preinstall": "([ ! -f package-lock.json ] && npm install --package-lock-only --ignore-scripts --no-audit); npx npm-force-resolutions",
     "test": "react-scripts test --passWithNoTests",
     "publish:local": "npm publish --registry http://localhost:4873",
     "publish:aws": "npm publish --registry http://10.194.9.122"
@@ -17,14 +18,18 @@
   },
   "author": "ralfaro",
   "license": "ISC",
+  "resolutions": {
+    "@xmldom/xmldom": "^0.7.0"
+  },
   "dependencies": {
     "connect-redis": "^5.2.0",
     "crypto-js": "^4.0.0",
     "express-session": "^1.17.1",
     "fs": "0.0.1-security",
     "jsonwebtoken": "^8.5.1",
+    "npm-force-resolutions": "0.0.10",
     "passport": "^0.4.1",
-    "passport-saml": "^2.2.0",
+    "passport-saml": "^3.1.0",
     "pg": "^8.6.0",
     "redis": "^3.1.2",
     "secure-random": "^1.1.2",
