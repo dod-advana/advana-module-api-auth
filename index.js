@@ -52,7 +52,9 @@ const getToken = (req, res) => {
 
 const getAllowedOriginMiddleware = (req, res, next) => {
 	try {
-		if (req && req.headers && process.env.APPROVED_API_CALLERS.split(',').includes(req.headers.origin)) {
+		if (req && req.headers && process.env.APPROVED_API_CALLERS.split(' ').includes(req.hostname)) {
+			res.setHeader('Access-Control-Allow-Origin', req.hostname);
+		} else if (req && req.headers && process.env.APPROVED_API_CALLERS.split(' ').includes(req.headers.origin)) {
 			res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
 		}
 	} catch (e) {
@@ -95,12 +97,13 @@ const redisSession = () => {
 };
 
 const ensureAuthenticated = async (req, res, next) => {
+	// console.log(req);
 	if (req.isAuthenticated()) {
 		if (req.session.user.disabled)
 			return res.status(403).send();
 
 		return next();
-	} else if (process.env.DISABLE_SSO) {
+	} else if (process.env.DISABLE_SSO === 'true') {
 		req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'));
 		next();
 	} else {
@@ -147,7 +150,7 @@ const fetchUserInfo = async (userid) => {
 
 const hasPerm = (desiredPermission = "", permissions = []) => {
 	if (permissions.length > 0) {
-		for(let perm of permissions){
+		for (let perm of permissions) {
 			if (
 				perm.toUpperCase() === desiredPermission.toUpperCase() ||
 				perm.toUpperCase() === 'WEBAPP SUPER ADMIN' ||
@@ -162,7 +165,7 @@ const hasPerm = (desiredPermission = "", permissions = []) => {
 
 const permCheck = (req, res, next, permissionToCheckFor = []) => {
 	try {
-		let permissions = (req.session.user && req.session.user.perms) ? req.session.user.perms: [];
+		let permissions = (req.session.user && req.session.user.perms) ? req.session.user.perms : [];
 		for (let p of permissionToCheckFor) {
 			if (hasPerm(p, permissions))
 				return next();
