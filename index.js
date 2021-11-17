@@ -104,14 +104,14 @@ const ensureAuthenticated = async (req, res, next) => {
 
 		return next();
 	} else if (process.env.DISABLE_SSO === 'true') {
-		req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'));
+		req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'), req.get('x-env-ssl_client_certificate'));
 		next();
 	} else {
 		return res.status(401).send();
 	}
 };
 
-const fetchUserInfo = async (userid) => {
+const fetchUserInfo = async (userid, cn) => {
 	let client = await pool.connect();
 	let userSQL = `SELECT * FROM users WHERE username = $1`;
 
@@ -136,7 +136,8 @@ const fetchUserInfo = async (userid) => {
 			displayName: user.displayname,
 			perms: perms,
 			sandboxId: user.sandbox_id,
-			disabled: user.disabled
+			disabled: user.disabled,
+			cn: cn || 'LAST.FIRST.MIDDLE.1234567890123456'
 		};
 
 	} catch (err) {
@@ -213,7 +214,8 @@ const setupSaml = (app) => {
 				id: profile[SAML_CONFIGS.SAML_CLAIM_ID],
 				email: profile[SAML_CONFIGS.SAML_CLAIM_EMAIL],
 				displayName: profile[SAML_CONFIGS.SAML_CLAIM_DISPLAYNAME],
-				perms: profile[SAML_CONFIGS.SAML_CLAIM_PERMS]
+				perms: profile[SAML_CONFIGS.SAML_CLAIM_PERMS],
+				cn: profile[SAML_CONFIGS.SAML_CLAIM_CN]
 			});
 		}));
 
