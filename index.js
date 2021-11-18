@@ -137,7 +137,9 @@ const fetchUserInfo = async (userid, cn) => {
 			perms: perms,
 			sandboxId: user.sandbox_id,
 			disabled: user.disabled,
-			cn: cn || 'LAST.FIRST.MIDDLE.1234567890123456'
+			cn: cn || 'LAST.FIRST.MIDDLE.1234567890123456',
+			firstName: user.displayname.split(' ')[0] || 'FIRST',
+			lastName: user.displayname.split(' ')[1] || 'LAST'
 		};
 
 	} catch (err) {
@@ -215,7 +217,9 @@ const setupSaml = (app) => {
 				email: profile[SAML_CONFIGS.SAML_CLAIM_EMAIL],
 				displayName: profile[SAML_CONFIGS.SAML_CLAIM_DISPLAYNAME],
 				perms: profile[SAML_CONFIGS.SAML_CLAIM_PERMS],
-				cn: profile[SAML_CONFIGS.SAML_CLAIM_CN]
+				cn: profile[SAML_CONFIGS.SAML_CLAIM_CN],
+				firstName: profile[SAML_CONFIGS.SAML_CLAIM_FIRST_NAME],
+				lastName: profile[SAML_CONFIGS.SAML_CLAIM_LAST_NAME]
 			});
 		}));
 
