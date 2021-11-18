@@ -132,7 +132,7 @@ const fetchUserInfo = async (userid, cn) => {
 		perms = perms.rows.map(({ name }) => name);
 
 		return {
-			id: user.username,
+			id: user.username || userid,
 			displayName: user.displayname,
 			perms: perms,
 			sandboxId: user.sandbox_id,
