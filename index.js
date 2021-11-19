@@ -138,8 +138,8 @@ const fetchUserInfo = async (userid, cn) => {
 			sandboxId: user.sandbox_id,
 			disabled: user.disabled,
 			cn: cn || 'LAST.FIRST.MIDDLE.1234567890123456',
-			firstName: user.displayname ? user.displayname.split(' ')[0] : 'FIRST',
-			lastName: user.displayname ? user.displayname.split(' ')[1] : 'LAST'
+			firstName: user.displayname ? user.displayname.split(' ')[0] : undefined,
+			lastName: user.displayname ? user.displayname.split(' ')[1] : undefined
 		};
 
 	} catch (err) {
