@@ -99,8 +99,13 @@ const redisSession = () => {
 const ensureAuthenticated = async (req, res, next) => {
 	// console.log(req);
 	if (req.isAuthenticated()) {
-		if (req.session.user.disabled)
-			return res.status(403).send();
+		if (req.session.user.disabled) {
+			if (req.hostname.includes('jbook') || req.hostname.includes('gamechanger')) {
+				return next();
+			} else {
+				return res.status(403).send();
+			}
+		}
 
 		return next();
 	} else if (process.env.DISABLE_SSO === 'true') {
@@ -131,15 +136,17 @@ const fetchUserInfo = async (userid, cn) => {
 		let perms = await client.query(permsSQL, [userid]);
 		perms = perms.rows.map(({ name }) => name);
 
+		const tempCN = cn ? cn : user.cn || 'LAST.FIRST.MIDDLE.1234567890123456';
+
 		return {
 			id: user.username || userid,
 			displayName: user.displayname,
 			perms: perms,
 			sandboxId: user.sandbox_id,
 			disabled: user.disabled,
-			cn: cn || 'LAST.FIRST.MIDDLE.1234567890123456',
-			firstName: user.displayname ? user.displayname.split(' ')[0] : undefined,
-			lastName: user.displayname ? user.displayname.split(' ')[1] : undefined
+			cn: tempCN,
+			firstName: tempCN.split('.')[1] || undefined,
+			lastName: tempCN.split('.')[0] ||  undefined
 		};
 
 	} catch (err) {
