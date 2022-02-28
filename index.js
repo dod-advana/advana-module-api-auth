@@ -97,7 +97,9 @@ const redisSession = () => {
 };
 
 const ensureAuthenticated = async (req, res, next) => {
-	// console.log(req);
+	if (req.session.passport && req.session.passport.user) {
+		req.session.user.cn = req.session.passport.user.cn;
+	}
 	if (req.isAuthenticated()) {
 		if (req.session.user.disabled) {
 			if (req.hostname.includes('jbook') || req.hostname.includes('gamechanger')) {
