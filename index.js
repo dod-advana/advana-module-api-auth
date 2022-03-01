@@ -195,7 +195,7 @@ const permCheck = (req, res, next, permissionToCheckFor = []) => {
 
 const setUserSession = async (req, res) => {
 	try {
-		req.session.user = await fetchUserInfo(req.user.id, req.session.passport && session.passport.user ? req.session.passport.user.cn : undefined);
+		req.session.user = await fetchUserInfo(req.user.id, req.session.passport && req.session.passport.user ? req.session.passport.user.cn : undefined);
 		req.session.user.session_id = req.sessionID;
 		SSORedirect(req, res);
 	} catch (err) {
