@@ -118,7 +118,7 @@ const ensureAuthenticated = async (req, res, next) => {
 	}
 };
 
-const fetchUserInfo = async (userid, cn) => {
+const fetchUserInfo = async (userid, cn, sessionUser) => {
 	let client = await pool.connect();
 	let userSQL = `SELECT * FROM users WHERE username = $1`;
 
@@ -134,21 +134,42 @@ const fetchUserInfo = async (userid, cn) => {
 
 	try {
 		let user = await client.query(userSQL, [userid]);
-		user = user.rows[0] || {};
-		let perms = await client.query(permsSQL, [userid]);
-		perms = perms.rows.map(({ name }) => name);
-
-		const tempCN = cn ? cn : user.cn || 'LAST.FIRST.MIDDLE.1234567890123456';
+		let perms = [];
+		let tempCN;
+		let firstName;
+		let lastName;
+		let displayName;
+		if (user) {
+			user = user.rows[0] || {};
+			perms = await client.query(permsSQL, [userid]);
+			perms = perms.rows.map(({ name }) => name);
+			tempCN = user.cn ? user.cn : sessionUser?.cn ? sessionUser?.cn : cn ? cn : 'LAST.FIRST.MIDDLE.1234567890123456';
+			displayName = user.displayname;
+			firstName = sessionUser?.firstName ? sessionUser?.firstName : tempCN.split('.')[1] || undefined;
+			lastName = sessionUser?.lastName ? sessionUser?.lastName : tempCN.split('.')[0] ||  undefined;
+		} else if (sessionUser) {
+			perms = sessionUser.perms;
+			tempCN = sessionUser.cn ? sessionUser.cn : cn ? cn : 'LAST.FIRST.MIDDLE.1234567890123456';
+			displayName = sessionUser.displayName;
+			firstName = sessionUser.firstName ? sessionUser.firstName : tempCN.split('.')[1] || undefined;
+			lastName = sessionUser.lastName ? sessionUser.lastName : tempCN.split('.')[0] ||  undefined;
+		} else {
+			perms = [];
+			tempCN = cn || 'LAST.FIRST.MIDDLE.1234567890123456';
+			firstName = tempCN.split('.')[1] || undefined;
+			lastName = tempCN.split('.')[0] ||  undefined;
+			displayName = `${firstName} ${lastName}`;
+		}
 
 		return {
 			id: user.username || userid,
-			displayName: user.displayname,
+			displayName: displayName,
 			perms: perms,
 			sandboxId: user.sandbox_id,
-			disabled: user.disabled,
+			disabled: user.disabled || false,
 			cn: tempCN,
-			firstName: tempCN.split('.')[1] || undefined,
-			lastName: tempCN.split('.')[0] ||  undefined
+			firstName: firstName,
+			lastName: lastName
 		};
 
 	} catch (err) {
@@ -195,7 +216,7 @@ const permCheck = (req, res, next, permissionToCheckFor = []) => {
 
 const setUserSession = async (req, res) => {
 	try {
-		req.session.user = await fetchUserInfo(req.user.id, req.session.passport && req.session.passport.user ? req.session.passport.user.cn : undefined);
+		req.session.user = await fetchUserInfo(req.user.id, req.session.passport && req.session.passport.user ? req.session.passport.user.cn : undefined, req.session.passport.user);
 		req.session.user.session_id = req.sessionID;
 		SSORedirect(req, res);
 	} catch (err) {
