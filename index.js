@@ -226,7 +226,7 @@ const setupSaml = (app) => {
 			try {
 				const parsedReferer = new URL(referer);
 				const refererOrigin = parsedReferer.origin.replace('www.', '');
-				const approvedClients = process.env.APPROVED_API_CALLERS.split(',');
+				const approvedClients = process.env.APPROVED_API_CALLERS.split(' ');
 				// store referer origin in session in order to redirect to correct domain after SAML auth
 				if (approvedClients.includes(refererOrigin) && refererOrigin !== approvedClients[0]) {
 					req.session.AlternateSsoOrigin = refererOrigin;
