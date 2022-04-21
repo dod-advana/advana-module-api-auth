@@ -59,7 +59,12 @@ const getAllowedOriginMiddleware = (req, res, next) => {
 		}
 	} catch (e) {
 		//this error happens in docker where origin is undefined
-		logger.error(e);
+		if (process.env.REQUEST_ORIGIN_ALLOWED) {
+			res.setHeader('Access-Control-Allow-Origin', process.env.REQUEST_ORIGIN_ALLOWED);
+		} else {
+			logger.error(e);
+			res.setHeader('Access-Control-Allow-Origin', '*.advana.data.mil');
+		}
 	}
 
 	res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS');
@@ -70,9 +75,13 @@ const getAllowedOriginMiddleware = (req, res, next) => {
 	if (req.method === 'OPTIONS') {
 		res.sendStatus(200);
 	} else {
+		if (!req.permissions) {
+			req.permissions = [];
+		}
 		next();
 	}
 }
+
 const redisSession = () => {
 	let redisOptions = {
 		host: process.env.REDIS_URL,
@@ -97,28 +106,55 @@ const redisSession = () => {
 };
 
 const ensureAuthenticated = async (req, res, next) => {
-	if (req.session.passport && req.session.passport.user) {
-		req.session.user.cn = req.session.passport.user.cn;
+	// If Decoupled then we need to make the userId off of the cn then create the req.user objects
+	if (process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true')  {
+		let cn = req.get('x-env-ssl_client_certificate');
+		cn = cn.replace(/.*CN=(.*)/g, '$1');
+		if (!cn) {
+			if (req.get('SSL_CLIENT_S_DN_CN')==='ml-api'){
+				next();
+			} else{
+				res.sendStatus(401);
+			}
+		} else {
+			const cnSplit = cn.split('.');
+			const userID = `${cnSplit[cnSplit.length - 1]}@mil`;
+
+			req.user = await fetchUserInfo(userID, cn);
+			req.session.user = req.user;
+			req.session.user.session_id = req.sessionID;
+			req.headers['SSL_CLIENT_S_DN_CN'] = userID;
+			next();
+		}
 	}
+
 	if (req.isAuthenticated()) {
-		if (req.session.user.disabled) {
-			if (req.hostname.includes('jbook') || req.hostname.includes('gamechanger')) {
-				return next();
+		if (!req.user.cn) {
+			// User has been authenticated in another app that does not have the CN SAML values
+			if (req.get('x-env-ssl_client_certificate')) {
+				req.user.cn = req.get('x-env-ssl_client_certificate');
 			} else {
-				return res.status(403).send();
+				if (req.user.displayName && req.user.id) {
+					const first = req.user.displayName.split( ' ')[0];
+					const last = req.user.displayName.split( ' ')[1];
+					req.user.cn = `${first}.${last}.MI.${req.user.id}`;
+				} else if (req.user.id) {
+					req.user.cn = `FIRST.LAST.MI.${req.user.id}`;
+				} else {
+					req.user.cn = 'FIRST.LAST.MI.1234567890@mil';
+				}
 			}
 		}
-
 		return next();
 	} else if (process.env.DISABLE_SSO === 'true') {
 		req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'), req.get('x-env-ssl_client_certificate'));
 		next();
 	} else {
-		return res.status(401).send();
+		return res.status(403).send();
 	}
 };
 
-const fetchUserInfo = async (userid, cn, sessionUser) => {
+const fetchUserInfo = async (userid, cn) => {
 	let client = await pool.connect();
 	let userSQL = `SELECT * FROM users WHERE username = $1`;
 
@@ -132,52 +168,38 @@ const fetchUserInfo = async (userid, cn, sessionUser) => {
 		WHERE username = $1 and p.name is not null
 	`;
 
+	let user;
+	let perms = [];
+	let firstName = 'First';
+	let lastName = 'Last';
+	let displayName = 'First Last';
 	try {
-		let user = await client.query(userSQL, [userid]);
-		let perms = [];
-		let tempCN;
-		let firstName;
-		let lastName;
-		let displayName;
-		if (user) {
-			user = user.rows[0] || {};
-			perms = await client.query(permsSQL, [userid]);
-			perms = perms.rows.map(({ name }) => name);
-			tempCN = user.cn ? user.cn : sessionUser?.cn ? sessionUser?.cn : cn ? cn : 'LAST.FIRST.MIDDLE.1234567890123456';
-			displayName = user.displayname;
-			firstName = sessionUser?.firstName ? sessionUser?.firstName : tempCN.split('.')[1] || undefined;
-			lastName = sessionUser?.lastName ? sessionUser?.lastName : tempCN.split('.')[0] ||  undefined;
-		} else if (sessionUser) {
-			perms = sessionUser.perms;
-			tempCN = sessionUser.cn ? sessionUser.cn : cn ? cn : 'LAST.FIRST.MIDDLE.1234567890123456';
-			displayName = sessionUser.displayName;
-			firstName = sessionUser.firstName ? sessionUser.firstName : tempCN.split('.')[1] || undefined;
-			lastName = sessionUser.lastName ? sessionUser.lastName : tempCN.split('.')[0] ||  undefined;
-		} else {
-			perms = [];
-			tempCN = cn || 'LAST.FIRST.MIDDLE.1234567890123456';
-			firstName = tempCN.split('.')[1] || undefined;
-			lastName = tempCN.split('.')[0] ||  undefined;
-			displayName = `${firstName} ${lastName}`;
+		user = await client.query(userSQL, [userid]);
+		user = user.rows[0] || {};
+		perms = await client.query(permsSQL, [userid]);
+		perms = perms.rows.map(({ name }) => name);
+		if (cn) {
+			firstName = cn.split('.')[1];
+			lastName = cn.split('.')[0];
 		}
-
-		return {
-			id: user.username || userid,
-			displayName: displayName,
-			perms: perms,
-			sandboxId: user.sandbox_id,
-			disabled: user.disabled || false,
-			cn: tempCN,
-			firstName: firstName,
-			lastName: lastName
-		};
+		displayName = user.displayname || `${firstName} ${lastName}`;
 
 	} catch (err) {
 		console.error(err);
-		return {};
 	} finally {
 		client.release();
 	}
+
+	return {
+		id: user.username || userid,
+		displayName: displayName,
+		perms: perms,
+		sandboxId: user.sandbox_id || 1,
+		disabled: user.disabled || false,
+		cn: cn,
+		firstName: firstName,
+		lastName: lastName
+	};
 };
 
 
@@ -216,7 +238,7 @@ const permCheck = (req, res, next, permissionToCheckFor = []) => {
 
 const setUserSession = async (req, res) => {
 	try {
-		req.session.user = await fetchUserInfo(req.user.id, req.session.passport && req.session.passport.user ? req.session.passport.user.cn : undefined, req.session.passport.user);
+		req.session.user = await fetchUserInfo(req.user.id, req.user?.cn || req.get('x-env-ssl_client_certificate'));
 		req.session.user.session_id = req.sessionID;
 		SSORedirect(req, res);
 	} catch (err) {
@@ -236,60 +258,72 @@ const SSORedirect = (req, res) => {
 
 const setupSaml = (app) => {
 
-	passport.serializeUser((user, done) => { done(null, user); });
-	passport.deserializeUser((user, done) => { done(null, user); });
+	if (!process.env.REACT_APP_GC_DECOUPLED || process.env.REACT_APP_GC_DECOUPLED !== 'true') {
+		passport.serializeUser((user, done) => {
+			done(null, user);
+		});
+		passport.deserializeUser((user, done) => {
+			done(null, user);
+		});
 
-	passport.use(new SamlStrategy(
-		SAML_CONFIGS.SAML_OBJECT,
-		function (profile, done) {
-			return done(null, {
-				id: profile[SAML_CONFIGS.SAML_CLAIM_ID],
-				email: profile[SAML_CONFIGS.SAML_CLAIM_EMAIL],
-				displayName: profile[SAML_CONFIGS.SAML_CLAIM_DISPLAYNAME],
-				perms: profile[SAML_CONFIGS.SAML_CLAIM_PERMS],
-				cn: profile[SAML_CONFIGS.SAML_CLAIM_CN],
-				firstName: profile[SAML_CONFIGS.SAML_CLAIM_FIRST_NAME],
-				lastName: profile[SAML_CONFIGS.SAML_CLAIM_LAST_NAME]
-			});
-		}));
+		passport.use(new SamlStrategy(
+			SAML_CONFIGS.SAML_OBJECT,
+			function (profile, done) {
+				return done(null, {
+					id: profile[SAML_CONFIGS.SAML_CLAIM_ID],
+					email: profile[SAML_CONFIGS.SAML_CLAIM_EMAIL],
+					displayName: profile[SAML_CONFIGS.SAML_CLAIM_DISPLAYNAME],
+					perms: profile[SAML_CONFIGS.SAML_CLAIM_PERMS],
+					cn: profile[SAML_CONFIGS.SAML_CLAIM_CN],
+					firstName: profile[SAML_CONFIGS.SAML_CLAIM_FIRST_NAME],
+					lastName: profile[SAML_CONFIGS.SAML_CLAIM_LAST_NAME]
+				});
+			}));
 
-	app.use(passport.initialize());
-	app.use(passport.session());
+		app.use(passport.initialize());
+		app.use(passport.session());
 
-	app.get('/login', (req, res, next) => {
-		const referer = req.get('Referer');
-		if (referer) {
-			try {
-				const parsedReferer = new URL(referer);
-				const refererOrigin = parsedReferer.origin.replace('www.', '');
-				const approvedClients = process.env.APPROVED_API_CALLERS.split(',');
-				// store referer origin in session in order to redirect to correct domain after SAML auth
-				if (approvedClients.includes(refererOrigin) && refererOrigin !== approvedClients[0]) {
-					req.session.AlternateSsoOrigin = refererOrigin;
+		app.get('/login', (req, res, next) => {
+			const referer = req.get('Referer');
+			if (referer) {
+				try {
+					const parsedReferer = new URL(referer);
+					const refererOrigin = parsedReferer.origin.replace('www.', '');
+					const approvedClients = process.env.APPROVED_API_CALLERS.split(' ');
+					// store referer origin in session in order to redirect to correct domain after SAML auth
+					if (approvedClients.includes(refererOrigin) && refererOrigin !== approvedClients[0]) {
+						req.session.AlternateSsoOrigin = refererOrigin;
+					}
+				} catch (error) {
+					logger.info(error);
 				}
-			} catch (error) {
-				logger.info(error);
 			}
-		}
-		passport.authenticate('saml', { failureRedirect: '/login/fail' })(req, res, next);
-	}, (req, res) => { SSORedirect(req, res); });
+			passport.authenticate('saml', {failureRedirect: '/login/fail'})(req, res, next);
+		}, (req, res) => {
+			SSORedirect(req, res);
+		});
 
-	app.post('/login/callback',
-		passport.authenticate('saml', { failureRedirect: '/login/fail' }),
-		(req, res) => { res.redirect('/api/setUserSession'); }
-	);
+		app.post('/login/callback',
+			passport.authenticate('saml', {failureRedirect: '/login/fail'}),
+			(req, res) => {
+				res.redirect('/api/setUserSession');
+			}
+		);
 
-	app.get('/login/fail',
-		(req, res) => { res.status(401).send('Login failed'); }
-	);
+		app.get('/login/fail',
+			(req, res) => {
+				res.status(401).send('Login failed');
+			}
+		);
 
 
-	app.get('/api/setUserSession', (req, res, next) => {
-		if (req.isAuthenticated())
-			return next();
-		else
-			return res.redirect('/login');
-	}, setUserSession);
+		app.get('/api/setUserSession', (req, res, next) => {
+			if (req.isAuthenticated())
+				return next();
+			else
+				return res.redirect('/login');
+		}, setUserSession);
+	}
 
 }
 
