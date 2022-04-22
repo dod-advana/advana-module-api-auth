@@ -128,7 +128,7 @@ const ensureAuthenticated = async (req, res, next) => {
 		}
 	} else {
 		if (req.isAuthenticated()) {
-			if (!req.user.cn) {
+			if (!req.user.cn || !req.user.perms) {
 				// User has been authenticated in another app that does not have the CN SAML values
 				if (req.get('x-env-ssl_client_certificate')) {
 					req.user.cn = req.get('x-env-ssl_client_certificate');
@@ -142,8 +142,10 @@ const ensureAuthenticated = async (req, res, next) => {
 					} else {
 						req.user.cn = 'FIRST.LAST.MI.1234567890@mil';
 					}
+					req.user = await fetchUserInfo(req.user.id, req.user.cn);
 				}
 				req.session.user = req.user;
+				req.session.user.session_id = req.sessionID;
 			}
 			return next();
 		} else if (process.env.DISABLE_SSO === 'true') {
