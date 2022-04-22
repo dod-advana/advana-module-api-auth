@@ -143,6 +143,7 @@ const ensureAuthenticated = async (req, res, next) => {
 						req.user.cn = 'FIRST.LAST.MI.1234567890@mil';
 					}
 				}
+				req.session.user = req.user;
 			}
 			return next();
 		} else if (process.env.DISABLE_SSO === 'true') {
