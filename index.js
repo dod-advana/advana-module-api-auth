@@ -126,31 +126,31 @@ const ensureAuthenticated = async (req, res, next) => {
 			req.headers['SSL_CLIENT_S_DN_CN'] = userID;
 			next();
 		}
-	}
-
-	if (req.isAuthenticated()) {
-		if (!req.user.cn) {
-			// User has been authenticated in another app that does not have the CN SAML values
-			if (req.get('x-env-ssl_client_certificate')) {
-				req.user.cn = req.get('x-env-ssl_client_certificate');
-			} else {
-				if (req.user.displayName && req.user.id) {
-					const first = req.user.displayName.split( ' ')[0];
-					const last = req.user.displayName.split( ' ')[1];
-					req.user.cn = `${first}.${last}.MI.${req.user.id}`;
-				} else if (req.user.id) {
-					req.user.cn = `FIRST.LAST.MI.${req.user.id}`;
+	} else {
+		if (req.isAuthenticated()) {
+			if (!req.user.cn) {
+				// User has been authenticated in another app that does not have the CN SAML values
+				if (req.get('x-env-ssl_client_certificate')) {
+					req.user.cn = req.get('x-env-ssl_client_certificate');
 				} else {
-					req.user.cn = 'FIRST.LAST.MI.1234567890@mil';
+					if (req.user.displayName && req.user.id) {
+						const first = req.user.displayName.split(' ')[0];
+						const last = req.user.displayName.split(' ')[1];
+						req.user.cn = `${first}.${last}.MI.${req.user.id}`;
+					} else if (req.user.id) {
+						req.user.cn = `FIRST.LAST.MI.${req.user.id}`;
+					} else {
+						req.user.cn = 'FIRST.LAST.MI.1234567890@mil';
+					}
 				}
 			}
+			return next();
+		} else if (process.env.DISABLE_SSO === 'true') {
+			req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'), req.get('x-env-ssl_client_certificate'));
+			next();
+		} else {
+			return res.status(403).send();
 		}
-		return next();
-	} else if (process.env.DISABLE_SSO === 'true') {
-		req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'), req.get('x-env-ssl_client_certificate'));
-		next();
-	} else {
-		return res.status(403).send();
 	}
 };
 
