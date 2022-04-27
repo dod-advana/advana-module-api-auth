@@ -109,12 +109,12 @@ const ensureAuthenticated = async (req, res, next) => {
 	// If Decoupled then we need to make the userId off of the cn then create the req.user objects
 	if (process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true')  {
 		let cn = req.get('x-env-ssl_client_certificate');
-		cn = cn.replace(/.*CN=(.*)/g, '$1');
+		cn = cn?.split('=')[1];
 		if (!cn) {
 			if (req.get('SSL_CLIENT_S_DN_CN')==='ml-api'){
 				next();
 			} else{
-				res.sendStatus(401);
+				return res.status(403).send();
 			}
 		} else {
 			const cnSplit = cn.split('.');
@@ -261,7 +261,7 @@ const SSORedirect = (req, res) => {
 
 const setupSaml = (app) => {
 
-	if (!process.env.REACT_APP_GC_DECOUPLED || process.env.REACT_APP_GC_DECOUPLED !== 'true') {
+	if (!process.env.IS_DECOUPLED || process.env.IS_DECOUPLED !== 'true') {
 		passport.serializeUser((user, done) => {
 			done(null, user);
 		});
