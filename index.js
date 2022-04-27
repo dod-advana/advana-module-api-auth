@@ -109,7 +109,12 @@ const ensureAuthenticated = async (req, res, next) => {
 	// If Decoupled then we need to make the userId off of the cn then create the req.user objects
 	if (process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true')  {
 		let cn = req.get('x-env-ssl_client_certificate');
-		cn = cn?.split('=')[1];
+		cn = cn?.split('=');
+		if (cn.length > 1) {
+			cn = cn[1];
+		} else {
+			cn = cn[0];
+		}
 		if (!cn) {
 			if (req.get('SSL_CLIENT_S_DN_CN')==='ml-api'){
 				next();
