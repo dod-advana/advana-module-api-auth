@@ -1,6 +1,6 @@
 {
   "name": "@dod-advana/advana-api-auth",
-  "version": "0.0.43",
+  "version": "0.0.44",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
   "scripts": {

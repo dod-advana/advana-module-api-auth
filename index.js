@@ -157,7 +157,7 @@ const ensureAuthenticated = async (req, res, next) => {
 			req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'), req.get('x-env-ssl_client_certificate'));
 			next();
 		} else {
-			return res.status(403).send();
+			return res.status(401).send();
 		}
 	}
 };
