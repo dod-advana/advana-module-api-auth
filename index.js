@@ -13,6 +13,8 @@ const RedisStore = require('connect-redis')(session);
 const passport = require('passport');
 const SamlStrategy = require('passport-saml').Strategy;
 
+const IS_DECOUPLED = process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true'
+const IS_NEXTJS_APP = process.env.IS_NEXTJS_APP && process.env.IS_NEXTJS_APP === 'true'
 
 const SAML_CONFIGS = require('./samlConfigs');
 
@@ -107,9 +109,9 @@ const redisSession = () => {
 
 const ensureAuthenticated = async (req, res, next) => {
 	// If Decoupled then we need to make the userId off of the cn then create the req.user objects
-	if (process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true')  {
+	if (IS_DECOUPLED)  {
 		let cn = req.get('x-env-ssl_client_certificate');
-		cn = cn?.split('=');
+		cn = cn?.split('=') || [];
 		if (cn.length > 1) {
 			cn = cn[1];
 		} else {
@@ -118,8 +120,13 @@ const ensureAuthenticated = async (req, res, next) => {
 		if (!cn) {
 			if (req.get('SSL_CLIENT_S_DN_CN')==='ml-api'){
 				next();
-			} else{
-				return res.status(403).send();
+			} else {
+				if (IS_NEXTJS_APP) {
+					res.status(403);
+					next();
+				} else {
+					return res.status(403).send('Unauthorized');
+				}
 			}
 		} else {
 			const cnSplit = cn.split('.');
@@ -155,9 +162,20 @@ const ensureAuthenticated = async (req, res, next) => {
 			return next();
 		} else if (process.env.DISABLE_SSO === 'true') {
 			req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'), req.get('x-env-ssl_client_certificate'));
-			next();
+
+			if (!req.session.user) {
+				res.status(403);
+				next();
+			} else {
+				next();
+			}
 		} else {
-			return res.status(401).send();
+			if (IS_NEXTJS_APP) {
+				return res.redirect('/login');
+			} else {
+				return res.status(401).send();
+			}
+
 		}
 	}
 };
@@ -183,7 +201,13 @@ const fetchUserInfo = async (userid, cn) => {
 	let displayName = 'First Last';
 	try {
 		user = await client.query(userSQL, [userid]);
-		user = user.rows[0] || {};
+
+		user = user.rows[0];
+
+		if (!user && !IS_DECOUPLED && IS_NEXTJS_APP) {
+			return false;
+		}
+
 		perms = await client.query(permsSQL, [userid]);
 		perms = perms.rows.map(({ name }) => name);
 		if (cn) {
@@ -266,7 +290,7 @@ const SSORedirect = (req, res) => {
 
 const setupSaml = (app) => {
 
-	if (!process.env.IS_DECOUPLED || process.env.IS_DECOUPLED !== 'true') {
+	if (!IS_DECOUPLED) {
 		passport.serializeUser((user, done) => {
 			done(null, user);
 		});
@@ -314,13 +338,13 @@ const setupSaml = (app) => {
 		app.post('/login/callback',
 			passport.authenticate('saml', {failureRedirect: '/login/fail'}),
 			(req, res) => {
-				res.redirect('/api/setUserSession');
+				return res.redirect('/api/setUserSession');
 			}
 		);
 
 		app.get('/login/fail',
 			(req, res) => {
-				res.status(401).send('Login failed');
+				return res.status(401).send('Login failed');
 			}
 		);
 
