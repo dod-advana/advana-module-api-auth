@@ -1,6 +1,6 @@
 {
   "name": "advana-api-auth",
-  "version": "0.0.29",
+  "version": "0.0.30",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
   "scripts": {
@@ -15,7 +15,6 @@
     "connect-redis": "^5.2.0",
     "crypto-js": "^4.0.0",
     "express-session": "^1.17.1",
-    "fs": "0.0.1-security",
     "jsonwebtoken": "^8.5.1",
     "passport": "0.5.2",
     "passport-saml": "3.2.1",
