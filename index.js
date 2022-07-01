@@ -159,8 +159,8 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 		//userid will be in a "##@mil" format
 		var query = 'mail=' + userid;
 		//possible properties that can queried from that format
-		//userPrincipalName format: "1410944908@drced.local"
-		//sAMAccountName format: "1410944908"
+		//userPrincipalName format: "123456789@drced.local"
+		//sAMAccountName format: "123456798"
 
 		ad.findUsers(query, true, function(err, users) {
 			if (err) {
