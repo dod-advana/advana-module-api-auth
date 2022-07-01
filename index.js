@@ -3,7 +3,7 @@ const CryptoJS = require('crypto-js');
 const jwt = require('jsonwebtoken');
 const RSAkeyDecrypt = require('ssh-key-decrypt');
 const secureRandom = require('secure-random');
-
+const ActiveDirectoryy = require('activedirectory2');
 const { Pool } = require('pg');
 
 const session = require('express-session');
@@ -146,6 +146,44 @@ const fetchUserInfo = async (userid) => {
 		client.release();
 	}
 };
+
+const fetchActiveDirectoryUserInfo = (userid) => {
+	var config = { 
+		url: 'ldap://10.194.9.95:389',
+		baseDN: 'DC=drced,DC=local',
+		username: 'dev.team.da@DRCED',
+		password: '1qazxsw2!QAZXSW@'
+	}
+	var ad = new ActiveDirectoryy(config);
+	try {
+		//userid will be in a "##@mil" format
+		var query = 'mail=' + userid;
+		//possible properties that can queried from that format
+		//userPrincipalName format: "1410944908@drced.local"
+		//sAMAccountName format: "1410944908"
+
+		ad.findUsers(query, true, function(err, users) {
+			if (err) {
+				console.error('ERROR: ' +JSON.stringify(err));
+				return;
+			}			
+			if ((! users) || (users.length == 0)) console.log('No users found.');
+			else {
+				var user = user[0]
+				console.log('findUsers: '+JSON.stringify(users));
+				// return {
+				// 	id: user.sAMAccountName + "@mil",
+				// 	displayName: user.displayName,
+				// 	perms: user.groups,
+				// 	disabled: (user.lockoutTime !== undefined && user.lockoutTime !== 0) ? false : true
+				// };
+			}
+		});
+	} catch (err) {
+		console.error(err);
+		return {};
+	}	
+}
 
 
 const hasPerm = (desiredPermission = "", permissions = []) => {
