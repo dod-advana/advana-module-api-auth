@@ -177,39 +177,15 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 						return entry;
 					});
 					res.on('error', function (err) {
+						ldapclient.unbind();
 						console.error('error: ' + err.message);
+						return {};
 					});
 				}
 			});		
 		}
 	});
 }
-
-//expected format. pathway should be static
-//('CN=LDapTestGroup,OU=accounts,OU=UOT,DC=drced,DC=local', 'CN=Test LDAP. User,CN=Users,DC=drced,DC=local', 'add');
-//('CN=LDapTestGroup,OU=accounts,OU=UOT,DC=drced,DC=local', 'CN=Test LDAP. User,CN=Users,DC=drced,DC=local', 'delete');
-const ldapAddRemoveUserFromGroup = (groupname, userToAddDn, action) => {
-	try {
-		var change = new ldap.Change({
-			operation: action,//actions are 'add' or 'delete'
-			modification: {
-				member:[userToAddDn] 
-			}
-		});
-		var ldapclient = ldap.createClient({
-			url: LDAP_CONFIGS.LDAP_OBJECT.url
-		});
-		ldapclient.modify("CN=" + groupname + ",OU=accounts,OU=UOT,DC=drced,DC=local", change, function (err) {
-			if (err) {
-				console.log("err in add user in a group " + err);
-			} else {
-				console.log("added user in a group")
-			}
-		});
-	} catch (err) {
-		console.error(err);
-	}
-};
 
 
 const hasPerm = (desiredPermission = "", permissions = []) => {
