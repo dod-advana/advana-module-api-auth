@@ -12,11 +12,11 @@
   "author": "ralfaro",
   "license": "ISC",
   "dependencies": {
-    "activedirectory2": "^2.1.0",
     "connect-redis": "^5.2.0",
     "crypto-js": "^4.0.0",
     "express-session": "^1.17.1",
     "jsonwebtoken": "^8.5.1",
+    "ldapjs": "^2.3.3",
     "passport": "0.5.2",
     "passport-saml": "3.2.1",
     "pg": "^8.6.0",

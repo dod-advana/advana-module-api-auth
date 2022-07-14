@@ -3,7 +3,6 @@ const CryptoJS = require('crypto-js');
 const jwt = require('jsonwebtoken');
 const RSAkeyDecrypt = require('ssh-key-decrypt');
 const secureRandom = require('secure-random');
-const ActiveDirectoryy = require('activedirectory2');
 const { Pool } = require('pg');
 
 const session = require('express-session');
@@ -13,6 +12,8 @@ const RedisStore = require('connect-redis')(session);
 const passport = require('passport');
 const SamlStrategy = require('passport-saml').Strategy;
 
+const LDAP_CONFIGS = require('./ldapConfigs')
+const ldap = require('ldapjs');
 
 const SAML_CONFIGS = require('./samlConfigs');
 
@@ -148,42 +149,67 @@ const fetchUserInfo = async (userid) => {
 };
 
 const fetchActiveDirectoryUserInfo = (userid) => {
-	var config = { 
-		url: 'ldap://10.194.9.95:389',
-		baseDN: 'DC=drced,DC=local',
-		username: 'dev.team.da@DRCED',
-		password: '1qazxsw2!QAZXSW@'
-	}
-	var ad = new ActiveDirectoryy(config);
-	try {
-		//userid will be in a "##@mil" format
-		var query = 'mail=' + userid;
-		//possible properties that can queried from that format
-		//userPrincipalName format: "123456789@drced.local"
-		//sAMAccountName format: "123456798"
+	var ldapclient = ldap.createClient({
+		url: LDAP_CONFIGS.LDAP_OBJECT.url
+	});
+	var opts = {
+		filter: '(cn=*)',  //simple search
+		scope: 'sub'
+	};
+	//userid will be in a "##@mil" format
+	//possible properties that can queried from that format
+	//userPrincipalName format: "123456789@drced.local"
+	//sAMAccountName format: "123456798"
+	
+	/*bind use for authentication*/
+	ldapclient.bind(LDAP_CONFIGS.LDAP_OBJECT.username, LDAP_CONFIGS.LDAP_OBJECT.password, function (err) {
+		if (err) {
+			console.log("Error in new connetion " + err)
+		} else {
+			/*if connection is success then go for any operation*/
+			//user directory needs to be updated to match prod
+			ldapclient.search(LDAP_CONFIGS.LDAP_User_Folder_CN, opts, function (err, res) {
+				if (err) {
+					console.log("Error in search " + err)
+				} else {
+					res.on('searchEntry', function (entry) {
+						ldapclient.unbind();
+						return entry;
+					});
+					res.on('error', function (err) {
+						console.error('error: ' + err.message);
+					});
+				}
+			});		
+		}
+	});
+}
 
-		ad.findUsers(query, true, function(err, users) {
+//expected format. pathway should be static
+//('CN=LDapTestGroup,OU=accounts,OU=UOT,DC=drced,DC=local', 'CN=Test LDAP. User,CN=Users,DC=drced,DC=local', 'add');
+//('CN=LDapTestGroup,OU=accounts,OU=UOT,DC=drced,DC=local', 'CN=Test LDAP. User,CN=Users,DC=drced,DC=local', 'delete');
+const ldapAddRemoveUserFromGroup = (groupname, userToAddDn, action) => {
+	try {
+		var change = new ldap.Change({
+			operation: action,//actions are 'add' or 'delete'
+			modification: {
+				member:[userToAddDn] 
+			}
+		});
+		var ldapclient = ldap.createClient({
+			url: LDAP_CONFIGS.LDAP_OBJECT.url
+		});
+		ldapclient.modify("CN=" + groupname + ",OU=accounts,OU=UOT,DC=drced,DC=local", change, function (err) {
 			if (err) {
-				console.error('ERROR: ' +JSON.stringify(err));
-				return;
-			}			
-			if ((! users) || (users.length == 0)) console.log('No users found.');
-			else {
-				var user = user[0]
-				console.log('findUsers: '+JSON.stringify(users));
-				// return {
-				// 	id: user.sAMAccountName + "@mil",
-				// 	displayName: user.displayName,
-				// 	perms: user.groups,
-				// 	disabled: (user.lockoutTime !== undefined && user.lockoutTime !== 0) ? false : true
-				// };
+				console.log("err in add user in a group " + err);
+			} else {
+				console.log("added user in a group")
 			}
 		});
 	} catch (err) {
 		console.error(err);
-		return {};
-	}	
-}
+	}
+};
 
 
 const hasPerm = (desiredPermission = "", permissions = []) => {
