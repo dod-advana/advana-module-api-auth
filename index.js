@@ -150,25 +150,24 @@ const fetchUserInfo = async (userid) => {
 
 const fetchActiveDirectoryUserInfo = (userid) => {
 	var ldapclient = ldap.createClient({
-		url: LDAP_CONFIGS.LDAP_OBJECT.url
+		url: process.env.LDAP_URL
 	});
 	var opts = {
-		filter: '(cn=*)',  //simple search
+		filter: '(userPrincipalName='+userid+')',  //simple search
 		scope: 'sub'
 	};
 	//userid will be in a "##@mil" format
-	//possible properties that can queried from that format
 	//userPrincipalName format: "123456789@drced.local"
 	//sAMAccountName format: "123456798"
 	
 	/*bind use for authentication*/
-	ldapclient.bind(LDAP_CONFIGS.LDAP_OBJECT.username, LDAP_CONFIGS.LDAP_OBJECT.password, function (err) {
+	ldapclient.bind(process.env.LDAP_USERNAME, process.env.LDAP_PASSWORD, function (err) {
 		if (err) {
 			console.log("Error in new connetion " + err)
 		} else {
 			/*if connection is success then go for any operation*/
 			//user directory needs to be updated to match prod
-			ldapclient.search(LDAP_CONFIGS.LDAP_User_Folder_CN, opts, function (err, res) {
+			ldapclient.search(process.env.LDAP_USER_FOLDER_CN, opts, function (err, res) {
 				if (err) {
 					console.log("Error in search " + err)
 				} else {
