@@ -1,6 +1,6 @@
 {
   "name": "advana-api-auth",
-  "version": "0.0.31",
+  "version": "1.0.0",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
   "scripts": {
