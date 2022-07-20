@@ -172,7 +172,19 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 				} else {
 					res.on('searchEntry', function (entry) {
 						ldapclient.unbind();
-						return entry;
+						var groupPerms = [];
+
+						for (let group of entry.groups) {
+							groupPerms.push(group.cn)
+						}
+
+						return {
+							id: entry.userPrincipalName,
+							displayName: entry.displayname,
+							perms: groupPerms,
+							sandboxId: entry.cn,
+							disabled: (user.lockoutTime !== undefined && user.lockoutTime !== 0) ? false : true
+						};
 					});
 					res.on('error', function (err) {
 						ldapclient.unbind();
