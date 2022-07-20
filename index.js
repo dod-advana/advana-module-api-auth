@@ -98,7 +98,6 @@ const redisSession = () => {
 };
 
 const ensureAuthenticated = async (req, res, next) => {
-	// console.log(req);
 	if (req.isAuthenticated()) {
 		if (req.session.user.disabled)
 			return res.status(403).send();
@@ -113,7 +112,7 @@ const ensureAuthenticated = async (req, res, next) => {
 };
 
 const fetchUserInfo = async (userid) => {
-	let client = await pool.connect();
+	let dbClient = await pool.connect();
 	let userSQL = `SELECT * FROM users WHERE username = $1`;
 
 	let permsSQL = `
@@ -127,9 +126,9 @@ const fetchUserInfo = async (userid) => {
 	`;
 
 	try {
-		let user = await client.query(userSQL, [userid]);
+		let user = await dbClient.query(userSQL, [userid]);
 		user = user.rows[0] || {};
-		let perms = await client.query(permsSQL, [userid]);
+		let perms = await dbClient.query(permsSQL, [userid]);
 		perms = perms.rows.map(({ name }) => name);
 
 		return {
@@ -144,7 +143,7 @@ const fetchUserInfo = async (userid) => {
 		console.error(err);
 		return {};
 	} finally {
-		client.release();
+		dbClient.release();
 	}
 };
 
@@ -279,11 +278,11 @@ const setupSaml = (app) => {
 
 	app.post('/login/callback',
 		passport.authenticate('saml', { failureRedirect: '/login/fail' }),
-		(req, res) => { res.redirect('/api/setUserSession'); }
+		(_req, res) => { res.redirect('/api/setUserSession'); }
 	);
 
 	app.get('/login/fail',
-		(req, res) => { res.status(401).send('Login failed'); }
+		(_req, res) => { res.status(401).send('Login failed'); }
 	);
 
 

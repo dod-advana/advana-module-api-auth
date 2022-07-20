@@ -1,0 +1,15 @@
+include:
+  - project: platform/promotion
+    file: ci/security.yml
+  - template: Security/SAST.gitlab-ci.yml
+
+stages:
+  - "🧪 security-test"
+
+# Look at security.yml .sonar_scan for information on overriding script proprties if needed.
+sonar_scan:
+  stage: "🧪 security-test"
+  extends: ".sonar_scan"
+
+sast:
+  stage: "🧪 security-test"
