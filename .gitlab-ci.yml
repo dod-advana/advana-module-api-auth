@@ -1,6 +1,5 @@
 include:
   - project: platform/promotion
-    ref: task/default-run-security-scans
     file: ci/security.yml
 
 stages:
