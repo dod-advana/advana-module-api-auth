@@ -1,5 +1,6 @@
 include:
   - project: platform/promotion
+    ref: task/default-run-security-scans
     file: ci/security.yml
 
 stages:
@@ -7,15 +8,16 @@ stages:
 
 sonar_scan:
   stage: "🧪 security-test"
+  extends: .sonar_scan
   script:
     - |
       sonar-scanner \
-        -Dsonar.qualitygate.wait=true \
-        -Dsonar.language=js \
-        -Dsonar.projectName="${PROJECTNAME}" \
-        -Dsonar.projectKey="${PROJECTKEY}" \
-        -Dsonar.links.ci="${PROJECTURL}/pipelines" \
-        -Dsonar.links.issue="${PROJECTURL}/issues" \
         -Dsonar.analysis.mode="publish" \
-        -Dsonar.projectBaseDir=. \
-        -Dsonar.sources=frontend/src,backend/node_app
+        -Dsonar.projectName="${CI_PROJECT_PATH}" \
+        -Dsonar.projectKey="${CI_PROJECT_PATH_SLUG}" \
+        -Dsonar.links.ci="${CI_PROJECT_URL}/pipelines" \
+        -Dsonar.links.issue="${CI_PROJECT_URL}/issues" \
+        -Dsonar.gitlab.project_id="${CI_PROJECT_ID}" \
+        -Dsonar.gitlab.commit_sha="${CI_COMMIT_SHA}" \
+        -Dsonar.gitlab.ref_name="${CI_COMMIT_REF_NAME}"
+  allow_failure: true
