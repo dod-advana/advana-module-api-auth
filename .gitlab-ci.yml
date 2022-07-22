@@ -1,15 +1,21 @@
 include:
   - project: platform/promotion
     file: ci/security.yml
-  - template: Security/SAST.gitlab-ci.yml
 
 stages:
   - "🧪 security-test"
 
-# Look at security.yml .sonar_scan for information on overriding script proprties if needed.
 sonar_scan:
   stage: "🧪 security-test"
-  extends: ".sonar_scan"
-
-sast:
-  stage: "🧪 security-test"
+  script:
+    - |
+      sonar-scanner \
+        -Dsonar.qualitygate.wait=true \
+        -Dsonar.language=js \
+        -Dsonar.projectName="${PROJECTNAME}" \
+        -Dsonar.projectKey="${PROJECTKEY}" \
+        -Dsonar.links.ci="${PROJECTURL}/pipelines" \
+        -Dsonar.links.issue="${PROJECTURL}/issues" \
+        -Dsonar.analysis.mode="publish" \
+        -Dsonar.projectBaseDir=. \
+        -Dsonar.sources=frontend/src,backend/node_app
