@@ -14,7 +14,6 @@ const passport = require('passport');
 const SamlStrategy = require('passport-saml').Strategy;
 
 const IS_DECOUPLED = process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true'
-const IS_NEXTJS_APP = process.env.IS_NEXTJS_APP && process.env.IS_NEXTJS_APP === 'true'
 
 const SAML_CONFIGS = require('./samlConfigs');
 
@@ -121,12 +120,7 @@ const ensureAuthenticated = async (req, res, next) => {
 			if (req.get('SSL_CLIENT_S_DN_CN')==='ml-api'){
 				next();
 			} else {
-				if (IS_NEXTJS_APP) {
-					res.status(403);
-					next();
-				} else {
-					return res.status(403).send('Unauthorized');
-				}
+				return res.status(403).send('Unauthorized');
 			}
 		} else {
 			const cnSplit = cn.split('.');
@@ -164,17 +158,12 @@ const ensureAuthenticated = async (req, res, next) => {
 			req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'), req.get('x-env-ssl_client_certificate'));
 
 			if (!req.session.user) {
-				res.status(403);
-				next();
+				return res.status(403).send();
 			} else {
 				next();
 			}
 		} else {
-			if (IS_NEXTJS_APP) {
-				return res.redirect('/login');
-			} else {
-				return res.status(401).send();
-			}
+			return res.status(401).send();
 
 		}
 	}
@@ -204,7 +193,7 @@ const fetchUserInfo = async (userid, cn) => {
 
 		user = user.rows[0];
 
-		if (!user && !IS_DECOUPLED && IS_NEXTJS_APP) {
+		if (!user && !IS_DECOUPLED) {
 			return false;
 		}
 
