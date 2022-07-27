@@ -193,10 +193,6 @@ const fetchUserInfo = async (userid, cn) => {
 
 		user = user.rows[0];
 
-		if (!user && !IS_DECOUPLED) {
-			return false;
-		}
-
 		perms = await client.query(permsSQL, [userid]);
 		perms = perms.rows.map(({ name }) => name);
 		if (cn) {
