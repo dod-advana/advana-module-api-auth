@@ -170,6 +170,11 @@ const ensureAuthenticated = async (req, res, next) => {
 };
 
 const fetchUserInfo = async (userid, cn) => {
+
+	if (!userid && !cn) {
+		return false;
+	}
+
 	let client = await pool.connect();
 	let userSQL = `SELECT * FROM users WHERE username = $1`;
 
@@ -199,7 +204,7 @@ const fetchUserInfo = async (userid, cn) => {
 			firstName = cn.split('.')[1];
 			lastName = cn.split('.')[0];
 		}
-		displayName = user.displayname || `${firstName} ${lastName}`;
+		displayName = user?.displayname || `${firstName} ${lastName}`;
 
 	} catch (err) {
 		console.error(err);
@@ -208,11 +213,11 @@ const fetchUserInfo = async (userid, cn) => {
 	}
 
 	return {
-		id: user.username || userid,
+		id: user?.username || userid,
 		displayName: displayName,
 		perms: perms,
-		sandboxId: user.sandbox_id || 1,
-		disabled: user.disabled || false,
+		sandboxId: user?.sandbox_id || 1,
+		disabled: user?.disabled || false,
 		cn: cn,
 		firstName: firstName,
 		lastName: lastName
