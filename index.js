@@ -99,7 +99,7 @@ const redisSession = () => {
 	return session({
 		store: new RedisStore(redisOptions),
 		expires: new Date(Date.now() + (43200000)),
-		secret: process.env.EXPRESS_SESSION_SECRET.split('|') || 'keyboard cat',
+		secret: process.env.EXPRESS_SESSION_SECRET?.split('|') || 'keyboard cat',
 		resave: false,
 		saveUninitialized: true,
 		cookie: { maxAge: 43200000, secure: process.env.SECURE_SESSION, httpOnly: true, ...extraSessionOptions }
