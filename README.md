@@ -16,3 +16,7 @@
 * COOKIE_DOMAIN
 * SECURE_SESSION
 * DISABLE_SSO
+* EXPRESS_SESSION_SECRET JSON array of strings used as secrets like
+```
+'["nnnn", "keyboard cat"]'
+```
