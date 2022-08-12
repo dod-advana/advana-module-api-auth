@@ -18,5 +18,5 @@
 * DISABLE_SSO
 * EXPRESS_SESSION_SECRET JSON array of strings used as secrets like
 ```
-'["nnnn", "keyboard cat"]'
+'["new secret first", "older secrets later"]'
 ```
