@@ -136,8 +136,8 @@ const ensureAuthenticated = async (req, res, next) => {
 		if (req.isAuthenticated()) {
 			if (!req.user.cn || !req.user.perms) {
 				// User has been authenticated in another app that does not have the CN SAML values
-				if (req.get('x-env-ssl_client_certificate')) {
-					req.user.cn = req.get('x-env-ssl_client_certificate');
+				if (req.get('x-env-ssl-client-certificate')) {
+					req.user.cn = req.get('x-env-ssl-client-certificate');
 				} else {
 					if (req.user.displayName && req.user.id) {
 						const first = req.user.displayName.split(' ')[0];
@@ -155,7 +155,7 @@ const ensureAuthenticated = async (req, res, next) => {
 			}
 			return next();
 		} else if (process.env.DISABLE_SSO === 'true') {
-			req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'), req.get('x-env-ssl_client_certificate'));
+			req.session.user = await fetchUserInfo(req.get('SSL-CLIENT-S-DN-CN'), req.get('x-env-ssl-client-certificate'));
 
 			if (!req.session.user) {
 				return res.status(403).send();
@@ -260,7 +260,7 @@ const permCheck = (req, res, next, permissionToCheckFor = []) => {
 
 const setUserSession = async (req, res) => {
 	try {
-		req.session.user = await fetchUserInfo(req.user.id, req.user?.cn || req.get('x-env-ssl_client_certificate'));
+		req.session.user = await fetchUserInfo(req.user.id, req.user?.cn || req.get('x-env-ssl-client-certificate'));
 		req.session.user.session_id = req.sessionID;
 		SSORedirect(req, res);
 	} catch (err) {
