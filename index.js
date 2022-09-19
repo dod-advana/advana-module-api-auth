@@ -12,7 +12,7 @@ const RedisStore = require('connect-redis')(session);
 
 const passport = require('passport');
 const SamlStrategy = require('passport-saml').Strategy;
-
+const logger = require('advana-logger');
 
 const SAML_CONFIGS = require('./samlConfigs');
 const retry_strategy = (options) => {
@@ -22,7 +22,7 @@ const retry_strategy = (options) => {
 
 	// square number of retries to get an exponential curve of retries
 	// return number of milleseconds to wait before retrying again
-	console.log('Try number: ', options.attempt + 1);
+	logger.info('Redis attempting to retry connection. Try number: ', options.attempt);
 	return options.attempt * options.attempt *100;
 }
 const client = redis.createClient({url: process.env.REDIS_URL, retry_strategy: retry_strategy});
