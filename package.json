@@ -23,5 +23,8 @@
     "secure-random": "1.1.2",
     "ssh-key-decrypt": "0.1.2"
   },
+  "peerDependencies": {
+    "advana-logger": "0.0.4"
+  },
   "resolutions": {}
 }
