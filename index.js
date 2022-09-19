@@ -15,8 +15,18 @@ const SamlStrategy = require('passport-saml').Strategy;
 
 
 const SAML_CONFIGS = require('./samlConfigs');
+const retry_strategy = (options) => {
+	if(options.attempt > 75){
+		return new Error('Redis connection attempts timed out');
+	}
 
-const client = redis.createClient(process.env.REDIS_URL);
+	// square number of retries to get an exponential curve of retries
+	// return number of milleseconds to wait before retrying again
+	console.log('Try number: ', options.attempt + 1);
+	return options.attempt * options.attempt *100;
+}
+const client = redis.createClient({url: process.env.REDIS_URL, retry_strategy: retry_strategy});
+
 const pool = new Pool({
 	user: process.env.PG_USER,
 	password: process.env.PG_PASSWORD,
@@ -95,6 +105,7 @@ const redisSession = () => {
 		cookie: { maxAge: 43200000, secure: process.env.SECURE_SESSION, httpOnly: true, ...extraSessionOptions }
 	});
 };
+
 
 const ensureAuthenticated = async (req, res, next) => {
 	if (req.isAuthenticated()) {
