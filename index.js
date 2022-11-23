@@ -176,7 +176,6 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 		if (err) {
 			console.log("Error in new connetion " + err)
 		} else {
-			/*if connection is success then go for any operation*/
 			//user directory needs to be updated to match prod
 			ldapclient.search(process.env.LDAP_USER_FOLDER_CN, opts, function (err, res) {
 				if (err) {
