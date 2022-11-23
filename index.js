@@ -195,7 +195,7 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 						}
 
 						return {
-							id: userObj.userPrincipalName,
+							id: userObj.sAMAccountName,
 							displayName: userObj.displayName,
 							perms: groupPerms,
 							sandboxId: userObj.cn,
