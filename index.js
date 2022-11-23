@@ -12,7 +12,6 @@ const RedisStore = require('connect-redis')(session);
 const passport = require('passport');
 const SamlStrategy = require('passport-saml').Strategy;
 
-const LDAP_CONFIGS = require('./ldapConfigs')
 const ldap = require('ldapjs');
 const logger = require('advana-logger');
 
