@@ -164,7 +164,7 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 		url: process.env.LDAP_URL
 	});
 	var opts = {
-		filter: '(userPrincipalName='+userid+')',  //simple search
+		filter: '(sAMAccountName='+userid+')',  //simple search
 		scope: 'sub'
 	};
 	//userid will be in a "##@mil" format
@@ -185,17 +185,22 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 					res.on('searchEntry', function (entry) {
 						ldapclient.unbind();
 						var groupPerms = [];
-
-						for (let group of entry.groups) {
-							groupPerms.push(group.cn)
+						var userObj = entry.object;
+						if(userObj.memberOf){
+							for (let group of userObj.memberOf) {
+								var cnParse = group.split(",",1)
+								var cnstring = cnParse[0].substring(3)
+								groupPerms.push(cnstring)
+							}
 						}
 
 						return {
-							id: entry.userPrincipalName,
-							displayName: entry.displayname,
+							id: userObj.userPrincipalName,
+							displayName: userObj.displayName,
 							perms: groupPerms,
-							sandboxId: entry.cn,
-							disabled: (user.lockoutTime !== undefined && user.lockoutTime !== 0) ? false : true
+							sandboxId: userObj.cn,
+							dn: userObj.dn,
+							disabled: (userObj.lockoutTime !== undefined && userObj.lockoutTime !== 0) ? false : true	
 						};
 					});
 					res.on('error', function (err) {
@@ -207,6 +212,49 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 			});		
 		}
 	});
+}
+
+// THE CODE BELOW IS GENERAL FUNCTIONS TO ADD/REMOVE USERS TO AND FROM ACTIVE DIRECTORY GROUPS. UX DESIGN REQUIRED BEFORE FUCTIONS FINISHED
+/*use this to add user to group*/
+function addUserToGroup(groupname, userToAddDn) {
+	var ldapclient = ldap.createClient({
+		url: process.env.LDAP_URL
+	});
+    var change = new ldap.Change({
+        operation: 'add',
+        modification: {
+            member:[userToAddDn]
+        }
+    });
+
+    ldapclient.modify(groupname, change, function (err) {
+        if (err) {
+            console.log("err in add user in a group " + err);
+        } else {
+            console.log("added user in a group")
+        }
+    });
+}
+
+/*use this to remove user from group*/
+function removeUserFromGroup(groupname, userToRemoveDn) {
+	var ldapclient = ldap.createClient({
+		url: process.env.LDAP_URL
+	});
+    var change = new ldap.Change({
+        operation: 'delete',
+        modification: {
+            member:[userToRemoveDn]
+        }
+    });
+
+    ldapclient.modify(groupname, change, function (err) {
+        if (err) {
+            console.log("err in remove user from a group " + err);
+        } else {
+            console.log("removed user from a group")
+        }
+    });
 }
 
 
