@@ -209,7 +209,7 @@ const fetchUserInfo = async (userid, cn) => {
 
 		user = user.rows[0];
 
-		perms = await client.query(permsSQL, [userid]);
+		perms = await dbClient.query(permsSQL, [userid]);
 		perms = perms.rows.map(({ name }) => name);
 		if (cn) {
 			firstName = cn.split('.')[1];
