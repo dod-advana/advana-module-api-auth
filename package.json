@@ -1,6 +1,6 @@
 {
   "name": "@dod-advana/advana-api-auth",
-  "version": "1.0.2",
+  "version": "2.0.2",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
   "scripts": {
@@ -19,16 +19,19 @@
   "author": "ralfaro",
   "license": "ISC",
   "dependencies": {
-    "connect-redis": "6.0.0",
+    "connect-redis": "5.2.0",
     "crypto-js": "4.0.0",
     "express-session": "1.17.1",
-    "fs": "0.0.1-security",
     "jsonwebtoken": "8.5.1",
-    "passport": "0.5.2",
+    "passport": "0.6.0",
     "passport-saml": "3.2.1",
     "pg": "8.6.0",
     "redis": "3.1.2",
     "secure-random": "1.1.2",
     "ssh-key-decrypt": "0.1.2"
-  }
+  },
+  "peerDependencies": {
+    "advana-logger": "0.0.4"
+  },
+  "resolutions": {}
 }
