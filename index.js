@@ -12,7 +12,7 @@ const RedisStore = require('connect-redis')(session);
 
 const passport = require('passport');
 const SamlStrategy = require('passport-saml').Strategy;
-const logger = require('advana-logger');
+const logger = require('@dod-advana/advana-logger');
 
 const IS_DECOUPLED = process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true'
 
