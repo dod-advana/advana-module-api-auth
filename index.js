@@ -103,7 +103,7 @@ const redisSession = () => {
 		secret: JSON.parse(process.env.EXPRESS_SESSION_SECRET),
 		resave: false,
 		saveUninitialized: true,
-		cookie: { maxAge: 43200000, secure: process.env.SECURE_SESSION, httpOnly: true, ...extraSessionOptions }
+		cookie: { maxAge: 43200000, secure: process.env.SECURE_SESSION === 'true', httpOnly: true, ...extraSessionOptions }
 	});
 };
 
