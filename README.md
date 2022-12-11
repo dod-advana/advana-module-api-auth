@@ -20,3 +20,9 @@
 ```
 '["new secret first", "older secrets later"]'
 ```
+
+* AD_ENABLED (true/false) This one turns on and off pulling permissions from AD.
+* LDAP_URL (ldap://ldap.example.com)
+* LDAP_USERNAME (dev.team.da@DRCED)
+* LDAP_PASSWORD (password)
+* LDAP_USER_FOLDER_CN (DC=drced,DC=local)

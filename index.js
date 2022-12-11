@@ -162,7 +162,11 @@ const fetchUserInfo = async (req) => {
 		let perms = await dbClient.query(permsSQL, [userid]);
 		perms = perms.rows.map(({ name }) => name);
 
-		const adUser = await fetchActiveDirectoryUserInfo(userid.split('@')[0]);
+		let adUser = {};
+
+		if (process.env.AD_ENABLED === 'true') {
+			adUser = await fetchActiveDirectoryUserInfo(userid.split('@')[0]);
+		}
 
 		return {
 			id: userid,
