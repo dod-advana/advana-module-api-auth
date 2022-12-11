@@ -15,4 +15,5 @@ module.exports = {
 	SAML_CLAIM_EMAIL: 'urn:oid:0.9.2342.19200300.100.1.3',
 	SAML_CLAIM_DISPLAYNAME: 'urn:oid:2.16.840.1.113730.3.1.241',
 	SAML_CLAIM_PERMS: 'urn:oid:2.5.6.8',
+	SAML_CLAIM_CN: 'urn:oid:2.5.4.3',
 }
