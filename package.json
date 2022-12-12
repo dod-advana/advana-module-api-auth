@@ -1,13 +1,13 @@
 {
   "name": "advana-api-auth",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
   "scripts": {
-    "preinstall": "([ ! -f package-lock.json ] && npm install --package-lock-only --ignore-scripts --no-audit); npx npm-force-resolutions",
     "test": "echo \"Error: no test specified\" && exit 1",
     "publish:local": "npm publish --registry http://localhost:4873",
-    "publish:aws": "npm publish --registry http://10.194.9.122"
+    "publish:aws": "npm publish --registry http://10.194.9.122",
+    "preinstall": "npx force-resolutions"
   },
   "author": "ralfaro",
   "license": "ISC",
