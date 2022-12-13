@@ -3,7 +3,6 @@ const CryptoJS = require('crypto-js');
 const jwt = require('jsonwebtoken');
 const RSAkeyDecrypt = require('ssh-key-decrypt');
 const secureRandom = require('secure-random');
-
 const { Pool } = require('pg');
 
 const session = require('express-session');
@@ -12,9 +11,14 @@ const RedisStore = require('connect-redis')(session);
 
 const passport = require('passport');
 const SamlStrategy = require('passport-saml').Strategy;
+
+const ldap = require('ldapjs');
 const logger = require('advana-logger');
 
 const SAML_CONFIGS = require('./samlConfigs');
+
+const SSO_DISABLED = process.env.DISABLE_SSO === 'true';
+
 const retry_strategy = (options) => {
 	if(options.attempt > 75){
 		return new Error('Redis connection attempts timed out');
@@ -41,8 +45,11 @@ if (process.env.TLS_KEY) {
 	keyFileData = fs.readFileSync(process.env.TLS_KEY_FILEPATH, 'ascii');
 }
 
-const private_key = '-----BEGIN RSA PRIVATE KEY-----\n' +
-	(RSAkeyDecrypt(keyFileData, process.env.TLS_KEY_PASSPHRASE, 'base64')).match(/.{1,64}/g).join('\n') +
+const private_key =
+	'-----BEGIN RSA PRIVATE KEY-----\n' +
+	RSAkeyDecrypt(keyFileData, process.env.TLS_KEY_PASSPHRASE, 'base64')
+		.match(/.{1,64}/g)
+		.join('\n') +
 	'\n-----END RSA PRIVATE KEY-----';
 
 const getToken = (req, res) => {
@@ -73,7 +80,10 @@ const getAllowedOriginMiddleware = (req, res, next) => {
 	}
 
 	res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS');
-	res.header('Access-Control-Allow-Headers', 'Accept, Origin, Content-Type, Authorization, Content-Length, X-Requested-With, Accept-Language, SSL_CLIENT_S_DN_CN, X-UA-SIGNATURE, permissions');
+	res.header(
+		'Access-Control-Allow-Headers',
+		'Accept, Origin, Content-Type, Authorization, Content-Length, X-Requested-With, Accept-Language, SSL_CLIENT_S_DN_CN, X-UA-SIGNATURE, permissions'
+	);
 	res.header('Access-Control-Allow-Credentials', true);
 	res.header('Access-Control-Expose-Headers', 'Content-Disposition');
 	// intercepts OPTIONS method
@@ -102,26 +112,37 @@ const redisSession = () => {
 		secret: JSON.parse(process.env.EXPRESS_SESSION_SECRET),
 		resave: false,
 		saveUninitialized: true,
-		cookie: { maxAge: 43200000, secure: process.env.SECURE_SESSION === 'true', httpOnly: true, ...extraSessionOptions }
+		cookie: {
+			maxAge: 43200000,
+			secure: process.env.SECURE_SESSION === 'true',
+			httpOnly: true,
+			...extraSessionOptions,
+		},
 	});
 };
 
-
 const ensureAuthenticated = async (req, res, next) => {
 	if (req.isAuthenticated()) {
-		if (req.session.user.disabled)
-			return res.status(403).send();
+		if (req.session.user.disabled) return res.status(403).send();
 
 		return next();
-	} else if (process.env.DISABLE_SSO === 'true') {
-		req.session.user = await fetchUserInfo(req.get('SSL_CLIENT_S_DN_CN'));
+	} else if (SSO_DISABLED) {
+		req.session.user = await fetchUserInfo(req);
 		next();
 	} else {
 		return res.status(401).send();
 	}
 };
 
-const fetchUserInfo = async (userid) => {
+const fetchUserInfo = async (req) => {
+	let userid;
+
+	if (SSO_DISABLED) {
+		userid = req.get('SSL_CLIENT_S_DN_CN');
+	} else {
+		userid = req.user.id;
+	}
+
 	let dbClient = await pool.connect();
 	let userSQL = `SELECT * FROM users WHERE username = $1`;
 
@@ -141,14 +162,21 @@ const fetchUserInfo = async (userid) => {
 		let perms = await dbClient.query(permsSQL, [userid]);
 		perms = perms.rows.map(({ name }) => name);
 
-		return {
-			id: user.username,
-			displayName: user.displayname,
-			perms: perms,
-			sandboxId: user.sandbox_id,
-			disabled: user.disabled
-		};
+		let adUser = {};
 
+		if (process.env.AD_ENABLED === 'true') {
+			adUser = await fetchActiveDirectoryUserInfo(userid.split('@')[0]);
+		}
+
+		return {
+			id: userid,
+			displayName: req?.user?.displayName || user.displayname || adUser.displayName,
+			perms: perms.concat(adUser?.perms || [], !SSO_DISABLED ? req?.user?.perms : []),
+			sandboxId: user.sandbox_id || adUser.sandboxId,
+			disabled: user.disabled || adUser.disabled,
+			cn: req?.user?.cn || adUser.cn,
+			email: req?.user?.email || adUser.email,
+		};
 	} catch (err) {
 		console.error(err);
 		return {};
@@ -157,6 +185,105 @@ const fetchUserInfo = async (userid) => {
 	}
 };
 
+const fetchActiveDirectoryUserInfo = (userid) => {
+	return new Promise((resolve, reject) => {
+		const ldapclient = ldap.createClient({
+			url: process.env.LDAP_URL
+		});
+		const opts = {
+			filter: '(sAMAccountName=' + userid + ')',  //simple search
+			scope: 'sub'
+		};
+		//userid will be in a "##@mil" format
+		//userPrincipalName format: "123456789@drced.local"
+		//sAMAccountName format: "123456798"
+
+		/*bind use for authentication*/
+		ldapclient.bind(process.env.LDAP_USERNAME, process.env.LDAP_PASSWORD, function (err) {
+			if (err) {
+				reject('Error in new connetion ' + err);
+			} else {
+				//user directory needs to be updated to match prod
+				ldapclient.search(process.env.LDAP_USER_FOLDER_CN, opts, function (err, res) {
+					if (err) {
+						reject('Error in search ' + err);
+					} else {
+						res.on('searchEntry', function (entry) {
+							ldapclient.unbind();
+							const groupPerms = [];
+							const userObj = entry.object;
+							if (userObj.memberOf) {
+								for (let group of userObj.memberOf) {
+									const cnParse = group.split(",", 1)
+									const cnstring = cnParse[0].substring(3)
+									groupPerms.push(cnstring)
+								}
+							}
+
+							resolve({
+								id: userObj.sAMAccountName,
+								displayName: userObj.displayName,
+								perms: groupPerms,
+								sandboxId: 1,
+								cn: userObj.cn,
+								dn: userObj.dn,
+								disabled: userObj.lockoutTime !== undefined && userObj.lockoutTime !== 0 ? false : true,
+								email: userObj.mail,
+							});
+						});
+						res.on('error', function (err) {
+							ldapclient.unbind();
+							reject('error: ' + err.message);
+						});
+					}
+				});
+			}
+		});
+	});
+}
+
+// THE CODE BELOW IS GENERAL FUNCTIONS TO ADD/REMOVE USERS TO AND FROM ACTIVE DIRECTORY GROUPS. UX DESIGN REQUIRED BEFORE FUCTIONS FINISHED
+/*use this to add user to group*/
+function addUserToGroup(groupname, userToAddDn) {
+	const ldapclient = ldap.createClient({
+		url: process.env.LDAP_URL
+	});
+    const change = new ldap.Change({
+        operation: 'add',
+        modification: {
+            member:[userToAddDn]
+        }
+    });
+
+    ldapclient.modify(groupname, change, function (err) {
+        if (err) {
+            console.log("err in add user in a group " + err);
+        } else {
+            console.log("added user in a group")
+        }
+    });
+}
+
+/*use this to remove user from group*/
+function removeUserFromGroup(groupname, userToRemoveDn) {
+	const ldapclient = ldap.createClient({
+		url: process.env.LDAP_URL
+	});
+    const change = new ldap.Change({
+        operation: 'delete',
+        modification: {
+            member:[userToRemoveDn]
+        }
+    });
+
+    ldapclient.modify(groupname, change, function (err) {
+        if (err) {
+            console.log("err in remove user from a group " + err);
+        } else {
+            console.log("removed user from a group")
+        }
+    });
+}
 
 const hasPerm = (desiredPermission = "", permissions = []) => {
 	if (permissions.length > 0) {
@@ -190,10 +317,9 @@ const permCheck = (req, res, next, permissionToCheckFor = []) => {
 
 // SAML PORTION
 
-
 const setUserSession = async (req, res) => {
 	try {
-		req.session.user = await fetchUserInfo(req.user.id);
+		req.session.user = await fetchUserInfo(req);
 		req.session.user.session_id = req.sessionID;
 		SSORedirect(req, res);
 	} catch (err) {
@@ -216,16 +342,27 @@ const setupSaml = (app) => {
 	passport.serializeUser((user, done) => { done(null, user); });
 	passport.deserializeUser((user, done) => { done(null, user); });
 
-	passport.use(new SamlStrategy(
-		SAML_CONFIGS.SAML_OBJECT,
-		function (profile, done) {
+	passport.use(
+		new SamlStrategy(SAML_CONFIGS.SAML_OBJECT, function (profile, done) {
+			const perms = new Set();
+			profile.getAssertion().Assertion.AttributeStatement.forEach((attributeStatement) => {
+				attributeStatement['Attribute'].forEach((attr) => {
+					if (attr['$']['Name'] === SAML_CONFIGS.SAML_CLAIM_PERMS) {
+						attr['AttributeValue'].forEach((attrValue) => {
+							perms.add(attrValue['_']);
+						});
+					}
+				});
+			});
 			return done(null, {
 				id: profile[SAML_CONFIGS.SAML_CLAIM_ID],
 				email: profile[SAML_CONFIGS.SAML_CLAIM_EMAIL],
 				displayName: profile[SAML_CONFIGS.SAML_CLAIM_DISPLAYNAME],
-				perms: profile[SAML_CONFIGS.SAML_CLAIM_PERMS]
+				perms: Array.from(perms),
+				cn: profile[SAML_CONFIGS.SAML_CLAIM_CN],
 			});
-		}));
+		})
+	);
 
 	app.use(passport.initialize());
 	app.use(passport.session());
