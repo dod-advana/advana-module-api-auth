@@ -187,13 +187,20 @@ const fetchUserInfo = async (req) => {
 
 const fetchActiveDirectoryUserInfo = (userid) => {
 	return new Promise((resolve, reject) => {
-		const ldapclient = ldap.createClient({
-			url: process.env.LDAP_URL
-		});
 		const opts = {
 			filter: '(sAMAccountName=' + userid + ')',  //simple search
 			scope: 'sub'
 		};
+		let ldapclient;
+		try {
+			ldapclient = ldap.createClient({
+				url: process.env.LDAP_URL
+			});
+			
+		} catch (err) {
+			console.log('Error in create ' + err, 'EOF6GFC', userid);
+			resolve({});
+		}
 		//userid will be in a "##@mil" format
 		//userPrincipalName format: "123456789@drced.local"
 		//sAMAccountName format: "123456798"
@@ -201,12 +208,14 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 		/*bind use for authentication*/
 		ldapclient.bind(process.env.LDAP_USERNAME, process.env.LDAP_PASSWORD, function (err) {
 			if (err) {
-				reject('Error in new connetion ' + err);
+				console.log('Error in bind ' + err);
+				resolve({});
 			} else {
 				//user directory needs to be updated to match prod
 				ldapclient.search(process.env.LDAP_USER_FOLDER_CN, opts, function (err, res) {
 					if (err) {
-						reject('Error in search ' + err);
+						console.log('Error in search ' + err);
+						resolve({});
 					} else {
 						res.on('searchEntry', function (entry) {
 							ldapclient.unbind();
@@ -233,7 +242,12 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 						});
 						res.on('error', function (err) {
 							ldapclient.unbind();
-							reject('error: ' + err.message);
+							console.log('error: ' + err.message);
+							resolve({});
+						});
+						res.on('end', (result) => {
+							ldapclient.unbind();
+							resolve({});
 						});
 					}
 				});
