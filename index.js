@@ -431,5 +431,6 @@ module.exports = {
 	permCheck,
 	redisSession,
 	setUserSession,
-	setupSaml
+	setupSaml,
+	fetchActiveDirectoryUserInfo
 };
