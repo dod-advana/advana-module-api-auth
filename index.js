@@ -194,7 +194,11 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 		let ldapclient;
 		try {
 			ldapclient = ldap.createClient({
-				url: process.env.LDAP_URL
+				url: process.env.LDAP_URL,
+				tlsOptions: {
+					rejectUnauthorized: false,
+					ca: [process.env.LDAP_CERT.replace(/\\n/g, '\n')]
+				}
 			});
 			
 		} catch (err) {
