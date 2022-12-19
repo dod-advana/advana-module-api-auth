@@ -240,7 +240,7 @@ const fetchActiveDirectoryUserInfo = (userid) => {
 								sandboxId: 1,
 								cn: userObj.cn,
 								dn: userObj.dn,
-								disabled: userObj.lockoutTime !== undefined && userObj.lockoutTime !== 0 ? false : true,
+								disabled: userObj.lockoutTime === !(userObj.lockoutTime === undefined || userObj.lockoutTime === 0 || userObj.lockoutTime === null),
 								email: userObj.mail,
 							});
 						});
