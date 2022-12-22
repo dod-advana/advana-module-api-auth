@@ -1,6 +1,6 @@
 {
   "name": "advana-api-auth",
-  "version": "2.1.5",
+  "version": "2.1.6",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
   "scripts": {
@@ -12,6 +12,7 @@
   "author": "ralfaro",
   "license": "ISC",
   "dependencies": {
+    "activedirectory2": "2.1.0",
     "connect-redis": "5.2.0",
     "crypto-js": "4.0.0",
     "express-session": "1.17.1",
