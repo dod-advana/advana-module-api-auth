@@ -13,7 +13,7 @@ const passport = require('passport');
 const SamlStrategy = require('passport-saml').Strategy;
 
 const ldap = require('ldapjs');
-const logger = require('advana-logger');
+const logger = require('@advana/advana-logger');
 const AD = require('activedirectory2').promiseWrapper;
 
 const SAML_CONFIGS = require('./samlConfigs');
