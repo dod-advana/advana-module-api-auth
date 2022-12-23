@@ -1,5 +1,5 @@
 {
-  "name": "advana-api-auth",
+  "name": "@advana/advana-api-auth",
   "version": "2.2.1",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
@@ -26,7 +26,7 @@
     "ssh-key-decrypt": "0.1.2"
   },
   "peerDependencies": {
-    "advana-logger": "0.0.4"
+    "@advana/advana-logger": "0.0.4"
   },
   "resolutions": {}
 }
