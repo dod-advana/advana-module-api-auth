@@ -12,7 +12,7 @@ const RedisStore = require('connect-redis')(session);
 const passport = require('passport');
 
 const ldap = require('ldapjs');
-const logger = require('advana-logger');
+const logger = require('@advana/advana-logger');
 const samlStrategy = require('./samlStrategy');
 const AD = require('activedirectory2').promiseWrapper;
 
@@ -456,7 +456,7 @@ const setupSaml = (app) => {
 		}
 		samlStrategy.logout(req, function(err, uri) {
 			if(!err){
-				return res.redirect("/login")				
+				return res.redirect("/login")
 			}
 			if(err){
 				logger.info(err)
