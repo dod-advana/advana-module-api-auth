@@ -167,7 +167,7 @@ const fetchUserInfo = async (req) => {
 
 		if (process.env.AD_ENABLED === 'true') {
 			const t0 = new Date().getTime();
-			adUser = await fetchActiveDirectoryUserInfo(req?.user?.id);
+			adUser = await fetchActiveDirectoryUserInfo(userid);
 			const t1 = new Date().getTime();
 			console.log(`Call to fetchActiveDirectoryUserInfo took ${(t1 - t0) / 1000} seconds.`);
 		}
