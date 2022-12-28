@@ -26,7 +26,7 @@
     "ssh-key-decrypt": "0.1.2"
   },
   "peerDependencies": {
-    "@advana/advana-logger": "0.0.4"
+    "@advana/advana-logger": "0.2.1"
   },
   "resolutions": {}
 }
