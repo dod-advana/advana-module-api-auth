@@ -160,16 +160,38 @@ const fetchUserInfo = async (req) => {
 	try {
 		let user = await dbClient.query(userSQL, [userid]);
 		user = user.rows[0] || {};
-		let perms = await dbClient.query(permsSQL, [userid]);
-		perms = perms.rows.map(({ name }) => name);
 
 		let adUser = {};
 
 		if (process.env.AD_ENABLED === 'true') {
 			const t0 = new Date().getTime();
-			adUser = await fetchActiveDirectoryUserInfo(req?.user?.id);
+			adUser = await fetchActiveDirectoryUserInfo(userid);
 			const t1 = new Date().getTime();
 			console.log(`Call to fetchActiveDirectoryUserInfo took ${(t1 - t0) / 1000} seconds.`);
+		}
+
+		// Create a new user if they don't exist in the database
+		let perms = [];
+		if (!user.id) {
+			const addNewUserSQL = `
+				INSERT INTO users (username, displayname, disabled, "createdAt", "updatedAt", email)
+				VALUES ($1, $2, $3, $4, $5, $6);
+			`;
+			try {
+				await dbClient.query(addNewUserSQL, [
+					userid,
+					adUser?.displayName || '',
+					false,
+					new Date(),
+					new Date(),
+					adUser?.mail || '',
+				]);
+			} catch (e) {
+				logger.error(e);
+			}
+		} else {
+			perms = await dbClient.query(permsSQL, [userid]);
+			perms = perms.rows.map(({ name }) => name);
 		}
 
 		return {
@@ -191,72 +213,82 @@ const fetchUserInfo = async (req) => {
 };
 
 const fetchActiveDirectoryUserInfo = async (userId) => {
-	const config = {
-		url: process.env.LDAP_URL,
-		tlsOptions: {
-			rejectUnauthorized: false,
-			ca: [process.env.LDAP_CERT.replace(/\\n/g, '\n')],
-		},
-		baseDN: process.env.LDAP_USER_FOLDER_CN,
-		username: process.env.LDAP_USERNAME,
-		password: process.env.LDAP_PASSWORD,
-	};
+	try {
+		const config = {
+			url: process.env.LDAP_URL,
+			tlsOptions: {
+				rejectUnauthorized: false,
+				ca: [process.env.LDAP_CERT.replace(/\\n/g, '\n')],
+			},
+			baseDN: process.env.LDAP_USER_FOLDER_CN,
+			username: process.env.LDAP_USERNAME,
+			password: process.env.LDAP_PASSWORD,
+		};
 
-	const ad = new AD(config);
+		const ad = new AD(config);
 
-	const userObj = await ad.findUser(userId.split('@')[0]);
-	if (!userObj) {
-		console.log('User: ' + userId + ' not found.');
+		const userObj = await ad.findUser(userId.split('@')[0]);
+		if (!userObj) {
+			console.log('User: ' + userId + ' not found.');
+			return {};
+		}
+
+		const groups = await ad.getGroupMembershipForUser(userId.split('@')[0]);
+		const groupPerms = [];
+		if (!groups) {
+			console.log('User: ' + userId + ' not found.');
+		} else {
+			groups.forEach((group) => {
+				groupPerms.push(group.cn);
+			});
+		}
+
+		return {
+			id: userObj.sAMAccountName,
+			displayName: userObj.displayName,
+			perms: groupPerms,
+			sandboxId: 1,
+			cn: userObj.cn,
+			dn: userObj.dn,
+			disabled: false,
+			email: userObj.mail,
+		};
+	} catch (err) {
+		logger.error(err);
 		return {};
 	}
-
-	const groups = await ad.getGroupMembershipForUser(userId.split('@')[0]);
-	const groupPerms = [];
-	if (!groups) {
-		console.log('User: ' + userId + ' not found.');
-	} else {
-		groups.forEach((group) => {
-			groupPerms.push(group.cn);
-		});
-	}
-
-	return {
-		id: userObj.sAMAccountName,
-		displayName: userObj.displayName,
-		perms: groupPerms,
-		sandboxId: 1,
-		cn: userObj.cn,
-		dn: userObj.dn,
-		disabled: false,
-		email: userObj.mail,
-	};
 };
 
 const fetchActiveDirectoryPermissions = async (userId) => {
-	const config = {
-		url: process.env.LDAP_URL,
-		tlsOptions: {
-			rejectUnauthorized: false,
-			ca: [process.env.LDAP_CERT.replace(/\\n/g, '\n')],
-		},
-		baseDN: process.env.LDAP_USER_FOLDER_CN,
-		username: process.env.LDAP_USERNAME,
-		password: process.env.LDAP_PASSWORD,
-	};
+	try {
+		const config = {
+			url: process.env.LDAP_URL,
+			tlsOptions: {
+				rejectUnauthorized: false,
+				ca: [process.env.LDAP_CERT.replace(/\\n/g, '\n')],
+			},
+			baseDN: process.env.LDAP_USER_FOLDER_CN,
+			username: process.env.LDAP_USERNAME,
+			password: process.env.LDAP_PASSWORD,
+		};
 
-	const ad = new AD(config);
+		const ad = new AD(config);
 
-	const groups = await ad.getGroupMembershipForUser(userId.split('@')[0]);
-	const groupPerms = [];
-	if (!groups) {
-		console.log('User: ' + userId + ' not found.');
-	} else {
-		groups.forEach((group) => {
-			groupPerms.push(group.cn);
-		});
+		const groups = await ad.getGroupMembershipForUser(userId.split('@')[0]);
+		const groupPerms = [];
+		if (!groups) {
+			console.log('User: ' + userId + ' not found.');
+		} else {
+			groups.forEach((group) => {
+				groupPerms.push(group.cn);
+			});
+		}
+
+		return groupPerms;
+	} catch (err) {
+		logger.error(err);
+		return [];
 	}
-
-	return groupPerms;
 };
 
 // THE CODE BELOW IS GENERAL FUNCTIONS TO ADD/REMOVE USERS TO AND FROM ACTIVE DIRECTORY GROUPS. UX DESIGN REQUIRED BEFORE FUCTIONS FINISHED
