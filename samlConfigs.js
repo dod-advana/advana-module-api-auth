@@ -6,6 +6,8 @@ module.exports = {
 		issuer: process.env.SAML_ISSUER,
 		callbackUrl: process.env.SAML_CALLBACK_URL,
 		entryPoint: process.env.SAML_ENTRYPOINT,
+		logoutUrl: process.env.SAML_LOGOUT_URL,
+		logoutCallback: process.env.SAML_LOGOUT_CALLBACK_URL,
 		cert: process.env.SAML_CERT,
 		skipRequestCompression: true,
 		signatureAlgorithm: 'sha512',

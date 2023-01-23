@@ -20,6 +20,12 @@
 ```
 '["new secret first", "older secrets later"]'
 ```
+* SAML_ISSUER
+* SAML_CALLBACK_URL
+* SAML_ENTRYPOINT
+* SAML_LOGOUT_URL
+* SAML_LOGOUT_CALLBACK_URL
+* SAML_CERT
 
 * AD_ENABLED (true/false) This one turns on and off pulling permissions from AD.
 * LDAP_URL (ldaps://ldap.example.com)
