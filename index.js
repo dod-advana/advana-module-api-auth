@@ -10,13 +10,11 @@ const redis = require('redis');
 const RedisStore = require('connect-redis')(session);
 
 const passport = require('passport');
-const SamlStrategy = require('passport-saml').Strategy;
 
 const ldap = require('ldapjs');
 const logger = require('advana-logger');
+const samlStrategy = require('./samlStrategy');
 const AD = require('activedirectory2').promiseWrapper;
-
-const SAML_CONFIGS = require('./samlConfigs');
 
 const SSO_DISABLED = process.env.DISABLE_SSO === 'true';
 
@@ -124,11 +122,12 @@ const redisSession = () => {
 
 const ensureAuthenticated = async (req, res, next) => {
 	if (req.isAuthenticated()) {
-		if (req.session.user.disabled) return res.status(403).send();
+		if (req.session?.user?.disabled) return res.status(403).send();
 
 		return next();
 	} else if (SSO_DISABLED) {
 		req.session.user = await fetchUserInfo(req);
+		logger.info(`DISABLED_SSO:Setting user session: user - ${req.session.user.id}, session id - ${req.sessionID}, IP - ${req.ip}`);
 		next();
 	} else {
 		return res.status(401).send();
@@ -365,10 +364,31 @@ const permCheck = (req, res, next, permissionToCheckFor = []) => {
 
 // SAML PORTION
 
+const updateLoginTime = async (req, res) => {
+	let userid;
+	if (SSO_DISABLED) {
+		userid = req.get('SSL_CLIENT_S_DN_CN');
+	} else {
+		userid = req.user.id;
+	}
+
+	let dbClient = await pool.connect();
+
+	try{
+		let loginTimeSQL = 'UPDATE users SET lastlogin=NOW() WHERE username=$1';
+		await dbClient.query(loginTimeSQL, [userid]);
+	} catch (err) {
+		logger.error(err)
+	} finally {
+		dbClient.release();
+	}
+}
+
 const setUserSession = async (req, res) => {
 	try {
 		req.session.user = await fetchUserInfo(req);
 		req.session.user.session_id = req.sessionID;
+		logger.info(`Setting user session: user - ${req.user.id}, session id - ${req.sessionID}, IP - ${req.ip}`)
 		SSORedirect(req, res);
 	} catch (err) {
 		console.error(err);
@@ -393,27 +413,7 @@ const setupSaml = (app) => {
 		done(null, user);
 	});
 
-	passport.use(
-		new SamlStrategy(SAML_CONFIGS.SAML_OBJECT, function (profile, done) {
-			const perms = new Set();
-			profile.getAssertion().Assertion.AttributeStatement.forEach((attributeStatement) => {
-				attributeStatement['Attribute'].forEach((attr) => {
-					if (attr['$']['Name'] === SAML_CONFIGS.SAML_CLAIM_PERMS) {
-						attr['AttributeValue'].forEach((attrValue) => {
-							perms.add(attrValue['_']);
-						});
-					}
-				});
-			});
-			return done(null, {
-				id: profile[SAML_CONFIGS.SAML_CLAIM_ID],
-				email: profile[SAML_CONFIGS.SAML_CLAIM_EMAIL],
-				displayName: profile[SAML_CONFIGS.SAML_CLAIM_DISPLAYNAME],
-				perms: Array.from(perms),
-				cn: profile[SAML_CONFIGS.SAML_CLAIM_CN],
-			});
-		})
-	);
+	passport.use(samlStrategy);
 
 	app.use(passport.initialize());
 	app.use(passport.session());
@@ -450,10 +450,32 @@ const setupSaml = (app) => {
 		res.status(401).send('Login failed');
 	});
 
+	app.get('/logout', function(req, res) {
+		if (req.user == null) {
+		  return res.redirect('/');
+		}
+		samlStrategy.logout(req, function(err, uri) {
+			if(!err){
+				return res.redirect("/login")				
+			}
+			if(err){
+				logger.info(err)
+			}
+		});
+	});
+
+	app.post('/logout/callback', function(req, res){
+		req.logout();
+		res.redirect('/login');
+	});
+
 	app.get(
 		'/api/setUserSession',
 		(req, res, next) => {
-			if (req.isAuthenticated()) return next();
+			if (req.isAuthenticated()) {
+				updateLoginTime(req, res)
+				return next();
+			}
 			else return res.redirect('/login');
 		},
 		setUserSession
