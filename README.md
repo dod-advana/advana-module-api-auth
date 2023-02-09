@@ -20,6 +20,7 @@
 ```
 '["new secret first", "older secrets later"]'
 ```
+* EXPRESS_SESSION_MAX_AGE session cookie max age in seconds
 * SAML_ISSUER
 * SAML_CALLBACK_URL
 * SAML_ENTRYPOINT
