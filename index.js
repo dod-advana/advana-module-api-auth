@@ -12,7 +12,7 @@ const RedisStore = require('connect-redis')(session);
 const passport = require('passport');
 
 const ldap = require('ldapjs');
-const logger = require('advana-logger');
+const logger = require('@dod-advana/advana-logger');
 const samlStrategy = require('./samlStrategy');
 const AD = require('activedirectory2').promiseWrapper;
 
