@@ -122,7 +122,10 @@ const redisSession = () => {
 
 	const MAX_AGE = getMaxAge();
 
-	const secret = process.env.EXPRESS_SESSION_SECRET?.includes('|') ? process.env.EXPRESS_SESSION_SECRET?.split('|') : JSON.parse(process.env.EXPRESS_SESSION_SECRET) || 'keyboard cat';
+	let secret = 'keyboard cat';
+	if (process.env.EXPRESS_SESSION_SECRET){
+		secret = process.env.EXPRESS_SESSION_SECRET?.includes('|') ? process.env.EXPRESS_SESSION_SECRET?.split('|') : JSON.parse(process.env.EXPRESS_SESSION_SECRET) || 'keyboard cat';
+	}
 
 	return session({
 		store: new RedisStore(redisOptions),
