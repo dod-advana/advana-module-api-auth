@@ -6,6 +6,8 @@ module.exports = {
 		issuer: process.env.SAML_ISSUER,
 		callbackUrl: process.env.SAML_CALLBACK_URL,
 		entryPoint: process.env.SAML_ENTRYPOINT,
+		logoutUrl: process.env.SAML_LOGOUT_URL,
+		logoutCallback: process.env.SAML_LOGOUT_CALLBACK_URL,
 		cert: process.env.SAML_CERT,
 		skipRequestCompression: true,
 		signatureAlgorithm: 'sha512',
@@ -16,6 +18,4 @@ module.exports = {
 	SAML_CLAIM_DISPLAYNAME: 'urn:oid:2.16.840.1.113730.3.1.241',
 	SAML_CLAIM_PERMS: 'urn:oid:2.5.6.8',
 	SAML_CLAIM_CN: 'urn:oid:2.5.4.3',
-	SAML_CLAIM_FIRST_NAME: 'urn:oid:2.5.4.42',
-	SAML_CLAIM_LAST_NAME: 'urn:oid:2.5.4.4'
 }

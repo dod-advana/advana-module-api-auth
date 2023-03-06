@@ -16,3 +16,17 @@
 ```
 '["new secret first", "older secrets later"]'
 ```
+* EXPRESS_SESSION_MAX_AGE session cookie max age in seconds
+* SAML_ISSUER
+* SAML_CALLBACK_URL
+* SAML_ENTRYPOINT
+* SAML_LOGOUT_URL
+* SAML_LOGOUT_CALLBACK_URL
+* SAML_CERT
+
+* AD_ENABLED (true/false) This one turns on and off pulling permissions from AD.
+* LDAP_URL (ldaps://ldap.example.com)
+* LDAP_USERNAME (dev.team.da@DRCED)
+* LDAP_PASSWORD (password)
+* LDAP_CERT (Cert for LDAP)
+* LDAP_USER_FOLDER_CN (DC=drced,DC=local)
