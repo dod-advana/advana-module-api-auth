@@ -267,8 +267,8 @@ const fetchUserInfo = async (userid, cn) => {
 			perms: perms.concat(adUser?.perms || [], !SSO_DISABLED ? req?.user?.perms : []),
 			sandboxId: user.sandbox_id || adUser.sandboxId,
 			disabled: user.disabled || adUser.disabled,
-			cn: req?.user?.cn || adUser.cn,
-			email: req?.user?.email || adUser.email,
+			cn: cn || adUser?.cn,
+			email: user?.email || adUser?.email,
 			retrievedADPerms: adUser?.perms?.length > 0,
 		};
 	} catch (err) {
