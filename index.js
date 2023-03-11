@@ -18,6 +18,20 @@ const AD = require('activedirectory2').promiseWrapper;
 
 const SSO_DISABLED = process.env.DISABLE_SSO === 'true';
 
+const getMaxAge = () => {
+	const MAX_MAX_AGE = 43200000; // 12 hours
+	const MIN_MAX_AGE = 1800000; // 30 minutes
+	const APP_DEFINED_MAX_AGE = parseInt(process.env.EXPRESS_SESSION_MAX_AGE);
+	let MAX_AGE = MAX_MAX_AGE; // default to max
+
+	if (APP_DEFINED_MAX_AGE) {
+		// don't allow it to be set greater than MAX or lower than MIN
+		MAX_AGE = Math.max(Math.min(APP_DEFINED_MAX_AGE, MAX_MAX_AGE), MIN_MAX_AGE);
+	}
+
+	return MAX_AGE;
+}
+
 const retry_strategy = (options) => {
 	if (options.attempt > 75) {
 		return new Error('Redis connection attempts timed out');
@@ -105,14 +119,16 @@ const redisSession = () => {
 		extraSessionOptions.domain = process.env.COOKIE_DOMAIN;
 	}
 
+	const MAX_AGE = getMaxAge();
+
 	return session({
 		store: new RedisStore(redisOptions),
-		expires: new Date(Date.now() + 43200000),
+		expires: new Date(Date.now() + MAX_AGE),
 		secret: JSON.parse(process.env.EXPRESS_SESSION_SECRET),
 		resave: false,
 		saveUninitialized: true,
 		cookie: {
-			maxAge: 43200000,
+			maxAge: MAX_AGE,
 			secure: process.env.SECURE_SESSION === 'true',
 			httpOnly: true,
 			...extraSessionOptions,
@@ -493,4 +509,5 @@ module.exports = {
 	setUserSession,
 	setupSaml,
 	fetchActiveDirectoryPermissions,
+	getMaxAge
 };
