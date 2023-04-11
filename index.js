@@ -145,27 +145,31 @@ const redisSession = () => {
 const ensureAuthenticated = async (req, res, next) => {
 	// If Decoupled then we need to make the userId off of the cn then create the req.user objects
 	if (IS_DECOUPLED)  {
-		let cn = req.get('x-env-ssl_client_certificate');
-		cn = cn?.split('=') || [];
-		if (cn.length > 1) {
-			cn = cn[1];
-		} else {
-			cn = cn[0];
-		}
-		if (!cn) {
-			if (req.get('SSL_CLIENT_S_DN_CN')==='ml-api'){
-				next();
+		if (!req?.session?.user || !req?.session?.user?.session_id) {
+			let cn = req.get('x-env-ssl_client_certificate');
+			cn = cn?.split('=') || [];
+			if (cn.length > 1) {
+				cn = cn[1];
 			} else {
-				return res.status(403).send('Unauthorized');
+				cn = cn[0];
+			}
+			if (!cn) {
+				if (req.get('SSL_CLIENT_S_DN_CN')==='ml-api'){
+					next();
+				} else {
+					return res.status(403).send('Unauthorized');
+				}
+			} else {
+				const cnSplit = cn.split('.');
+				const userID = `${cnSplit[cnSplit.length - 1]}@mil`;
+
+				req.user = await fetchUserInfo(userID, cn);
+				req.session.user = req.user;
+				req.session.user.session_id = req.sessionID;
+				req.headers['SSL_CLIENT_S_DN_CN'] = userID;
+				next();
 			}
 		} else {
-			const cnSplit = cn.split('.');
-			const userID = `${cnSplit[cnSplit.length - 1]}@mil`;
-
-			req.user = await fetchUserInfo(userID, cn);
-			req.session.user = req.user;
-			req.session.user.session_id = req.sessionID;
-			req.headers['SSL_CLIENT_S_DN_CN'] = userID;
 			next();
 		}
 	} else {
@@ -474,80 +478,83 @@ const SSORedirect = (req, res) => {
 };
 
 const setupSaml = (app) => {
-	passport.serializeUser((user, done) => {
-		done(null, user);
-	});
-	passport.deserializeUser((user, done) => {
-		done(null, user);
-	});
 
-	passport.use(samlStrategy);
-
-	app.use(passport.initialize());
-	app.use(passport.session());
-
-	app.get(
-		'/login',
-		(req, res, next) => {
-			const referer = req.get('Referer');
-			if (referer) {
-				try {
-					const parsedReferer = new URL(referer);
-					const refererOrigin = parsedReferer.origin.replace('www.', '');
-					const approvedClients = process.env.APPROVED_API_CALLERS.split(' ');
-					// store referer origin in session in order to redirect to correct domain after SAML auth
-					if (approvedClients.includes(refererOrigin) && refererOrigin !== approvedClients[0]) {
-						req.session.AlternateSsoOrigin = refererOrigin;
-					}
-				} catch (error) {
-					logger.info(error);
-				}
-			}
-			passport.authenticate('saml', { failureRedirect: '/login/fail' })(req, res, next);
-		},
-		(req, res) => {
-			SSORedirect(req, res);
-		}
-	);
-
-	app.post('/login/callback', passport.authenticate('saml', { failureRedirect: '/login/fail' }), (_req, res) => {
-		res.redirect('/api/setUserSession');
-	});
-
-	app.get('/login/fail', (_req, res) => {
-		res.status(401).send('Login failed');
-	});
-
-	app.get('/logout', function(req, res) {
-		if (req.user == null) {
-		  return res.redirect('/');
-		}
-		samlStrategy.logout(req, function(err, uri) {
-			if(!err){
-				return res.redirect("/login")
-			}
-			if(err){
-				logger.info(err)
-			}
+	if (SSO_DISABLED) {
+		passport.serializeUser((user, done) => {
+			done(null, user);
 		});
-	});
+		passport.deserializeUser((user, done) => {
+			done(null, user);
+		});
 
-	app.post('/logout/callback', function(req, res){
-		req.logout();
-		res.redirect('/login');
-	});
+		passport.use(samlStrategy);
 
-	app.get(
-		'/api/setUserSession',
-		(req, res, next) => {
-			if (req.isAuthenticated()) {
-				updateLoginTime(req, res)
-				return next();
+		app.use(passport.initialize());
+		app.use(passport.session());
+
+		app.get(
+			'/login',
+			(req, res, next) => {
+				const referer = req.get('Referer');
+				if (referer) {
+					try {
+						const parsedReferer = new URL(referer);
+						const refererOrigin = parsedReferer.origin.replace('www.', '');
+						const approvedClients = process.env.APPROVED_API_CALLERS.split(' ');
+						// store referer origin in session in order to redirect to correct domain after SAML auth
+						if (approvedClients.includes(refererOrigin) && refererOrigin !== approvedClients[0]) {
+							req.session.AlternateSsoOrigin = refererOrigin;
+						}
+					} catch (error) {
+						logger.info(error);
+					}
+				}
+				passport.authenticate('saml', { failureRedirect: '/login/fail' })(req, res, next);
+			},
+			(req, res) => {
+				SSORedirect(req, res);
 			}
-			else return res.redirect('/login');
-		},
-		setUserSession
-	);
+		);
+
+		app.post('/login/callback', passport.authenticate('saml', { failureRedirect: '/login/fail' }), (_req, res) => {
+			res.redirect('/api/setUserSession');
+		});
+
+		app.get('/login/fail', (_req, res) => {
+			res.status(401).send('Login failed');
+		});
+
+		app.get('/logout', function(req, res) {
+			if (req.user == null) {
+			return res.redirect('/');
+			}
+			samlStrategy.logout(req, function(err, uri) {
+				if(!err){
+					return res.redirect("/login")
+				}
+				if(err){
+					logger.info(err)
+				}
+			});
+		});
+
+		app.post('/logout/callback', function(req, res){
+			req.logout();
+			res.redirect('/login');
+		});
+
+		app.get(
+			'/api/setUserSession',
+			(req, res, next) => {
+				if (req.isAuthenticated()) {
+					updateLoginTime(req, res)
+					return next();
+				}
+				else return res.redirect('/login');
+			},
+			setUserSession
+		);
+	}
 };
 
 // END SAML PORTION
