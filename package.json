@@ -19,6 +19,7 @@
   "author": "ralfaro",
   "license": "ISC",
   "dependencies": {
+    "activedirectory2": "2.1.0",
     "connect-redis": "6.0.0",
     "crypto-js": "4.0.0",
     "express-session": "1.17.1",

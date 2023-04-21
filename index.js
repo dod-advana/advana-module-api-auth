@@ -13,21 +13,23 @@ const RedisStore = require('connect-redis')(session);
 const passport = require('passport');
 const SamlStrategy = require('passport-saml').Strategy;
 const logger = require('@dod-advana/advana-logger');
+const AD = require('activedirectory2').promiseWrapper;
 
+const SSO_DISABLED = process.env.DISABLE_SSO === 'true';
 const IS_DECOUPLED = process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true'
 
 const SAML_CONFIGS = require('./samlConfigs');
 const retry_strategy = (options) => {
-	if(options.attempt > 75){
+	if (options.attempt > 75) {
 		return new Error('Redis connection attempts timed out');
 	}
 
 	// square number of retries to get an exponential curve of retries
 	// return number of milleseconds to wait before retrying again
 	logger.info('Redis attempting to retry connection. Try number: ', options.attempt);
-	return options.attempt * options.attempt *100;
+	return options.attempt * options.attempt * 100;
 }
-const client = redis.createClient({url: process.env.REDIS_URL, retry_strategy: retry_strategy});
+const client = redis.createClient({ url: process.env.REDIS_URL, retry_strategy: retry_strategy });
 
 const pool = new Pool({
 	user: process.env.PG_USER,
@@ -119,7 +121,7 @@ const redisSession = () => {
 
 const ensureAuthenticated = async (req, res, next) => {
 	// If Decoupled then we need to make the userId off of the cn then create the req.user objects
-	if (IS_DECOUPLED)  {
+	if (IS_DECOUPLED) {
 		let cn = req.get('x-env-ssl_client_certificate');
 		cn = cn?.split('=') || [];
 		if (cn.length > 1) {
@@ -128,7 +130,7 @@ const ensureAuthenticated = async (req, res, next) => {
 			cn = cn[0];
 		}
 		if (!cn) {
-			if (req.get('SSL_CLIENT_S_DN_CN')==='ml-api'){
+			if (req.get('SSL_CLIENT_S_DN_CN') === 'ml-api') {
 				next();
 			} else {
 				return res.status(403).send('Unauthorized');
@@ -181,7 +183,6 @@ const ensureAuthenticated = async (req, res, next) => {
 };
 
 const fetchUserInfo = async (userid, cn) => {
-
 	if (!userid && !cn) {
 		return false;
 	}
@@ -199,32 +200,52 @@ const fetchUserInfo = async (userid, cn) => {
 		WHERE username = $1 and p.name is not null
 	`;
 
-	let user;
-	let perms = [];
-	let firstName = 'First';
-	let lastName = 'Last';
-	let displayName = 'First Last';
 	try {
-		user = await dbClient.query(userSQL, [userid]);
+		let user = await dbClient.query(userSQL, [userid]);
+		user = user.rows[0] || {};
 
-		user = user.rows[0];
+		let adUser = {};
 
-		perms = await dbClient.query(permsSQL, [userid]);
-		perms = perms.rows.map(({ name }) => name);
-		if (cn) {
-			firstName = cn.split('.')[1];
-			lastName = cn.split('.')[0];
+		if (process.env.AD_ENABLED === 'true') {
+			const t0 = new Date().getTime();
+			adUser = await fetchActiveDirectoryUserInfo(userid);
+			const t1 = new Date().getTime();
+			console.log(`Call to fetchActiveDirectoryUserInfo took ${(t1 - t0) / 1000} seconds.`);
 		}
-		displayName = user?.displayname || `${firstName} ${lastName}`;
+
+		// Create a new user if they don't exist in the database
+		let perms = [];
+		if (!user.id) {
+			const addNewUserSQL = `
+				INSERT INTO users (username, displayname, disabled, "createdAt", "updatedAt", email)
+				VALUES ($1, $2, $3, $4, $5, $6);
+			`;
+			try {
+				await dbClient.query(addNewUserSQL, [
+					userid,
+					adUser?.displayName || '',
+					false,
+					new Date(),
+					new Date(),
+					adUser?.mail || '',
+				]);
+			} catch (e) {
+				logger.error(e);
+			}
+		} else {
+			perms = await dbClient.query(permsSQL, [userid]);
+			perms = perms.rows.map(({ name }) => name);
+		}
+
 		return {
-			id: user?.username || userid,
-			displayName: displayName,
-			perms: perms,
-			sandboxId: user?.sandbox_id || 1,
-			disabled: user?.disabled || false,
-			cn: cn,
-			firstName: firstName,
-			lastName: lastName
+			id: userid,
+			displayName: user?.displayname || adUser.displayName,
+			perms: perms.concat(adUser?.perms || [], !SSO_DISABLED ? req?.user?.perms : []),
+			sandboxId: user.sandbox_id || adUser.sandboxId,
+			disabled: user.disabled || adUser.disabled,
+			cn: cn || adUser?.cn,
+			email: user?.email || adUser?.email,
+			retrievedADPerms: adUser?.perms?.length > 0,
 		};
 	} catch (err) {
 		console.error(err);
@@ -232,8 +253,85 @@ const fetchUserInfo = async (userid, cn) => {
 	} finally {
 		dbClient.release();
 	}
+};
 
+const fetchActiveDirectoryUserInfo = async (userId) => {
+	try {
+		const config = {
+			url: process.env.LDAP_URL,
+			tlsOptions: {
+				rejectUnauthorized: false,
+				ca: [process.env.LDAP_CERT.replace(/\\n/g, '\n')],
+			},
+			baseDN: process.env.LDAP_USER_FOLDER_CN,
+			username: process.env.LDAP_USERNAME,
+			password: process.env.LDAP_PASSWORD,
+		};
 
+		const ad = new AD(config);
+
+		const userObj = await ad.findUser(userId.split('@')[0]);
+		if (!userObj) {
+			console.log('User: ' + userId + ' not found.');
+			return {};
+		}
+
+		const groups = await ad.getGroupMembershipForUser(userId.split('@')[0]);
+		const groupPerms = [];
+		if (!groups) {
+			console.log('User: ' + userId + ' not found.');
+		} else {
+			groups.forEach((group) => {
+				groupPerms.push(group.cn);
+			});
+		}
+
+		return {
+			id: userObj.sAMAccountName,
+			displayName: userObj.displayName,
+			perms: groupPerms,
+			sandboxId: 1,
+			cn: userObj.cn,
+			dn: userObj.dn,
+			disabled: false,
+			email: userObj.mail,
+		};
+	} catch (err) {
+		logger.error(err);
+		return {};
+	}
+};
+
+const fetchActiveDirectoryPermissions = async (userId) => {
+	try {
+		const config = {
+			url: process.env.LDAP_URL,
+			tlsOptions: {
+				rejectUnauthorized: false,
+				ca: [process.env.LDAP_CERT.replace(/\\n/g, '\n')],
+			},
+			baseDN: process.env.LDAP_USER_FOLDER_CN,
+			username: process.env.LDAP_USERNAME,
+			password: process.env.LDAP_PASSWORD,
+		};
+
+		const ad = new AD(config);
+
+		const groups = await ad.getGroupMembershipForUser(userId.split('@')[0]);
+		const groupPerms = [];
+		if (!groups) {
+			console.log('User: ' + userId + ' not found.');
+		} else {
+			groups.forEach((group) => {
+				groupPerms.push(group.cn);
+			});
+		}
+
+		return groupPerms;
+	} catch (err) {
+		logger.error(err);
+		return [];
+	}
 };
 
 
@@ -332,13 +430,13 @@ const setupSaml = (app) => {
 					logger.info(error);
 				}
 			}
-			passport.authenticate('saml', {failureRedirect: '/login/fail'})(req, res, next);
+			passport.authenticate('saml', { failureRedirect: '/login/fail' })(req, res, next);
 		}, (req, res) => {
 			SSORedirect(req, res);
 		});
 
 		app.post('/login/callback',
-			passport.authenticate('saml', {failureRedirect: '/login/fail'}),
+			passport.authenticate('saml', { failureRedirect: '/login/fail' }),
 			(req, res) => {
 				return res.redirect('/api/setUserSession');
 			}
@@ -370,5 +468,6 @@ module.exports = {
 	permCheck,
 	redisSession,
 	setUserSession,
-	setupSaml
+	setupSaml,
+	fetchActiveDirectoryPermissions
 };
