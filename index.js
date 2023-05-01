@@ -479,7 +479,7 @@ const SSORedirect = (req, res) => {
 
 const setupSaml = (app) => {
 
-	if (SSO_DISABLED) {
+	if (!SSO_DISABLED) {
 		passport.serializeUser((user, done) => {
 			done(null, user);
 		});
