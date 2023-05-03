@@ -161,7 +161,7 @@ const ensureAuthenticated = async (req, res, next) => {
 					} else {
 						req.user.cn = 'FIRST.LAST.MI.1234567890@mil';
 					}
-					req.user = await fetchUserInfo(req.user.id, req.user.cn);
+					req.user = await fetchUserInfo(req.user.id, req.user.cn, req?.user?.perms);
 				}
 				req.session.user = req.user;
 				req.session.user.session_id = req.sessionID;
@@ -182,7 +182,7 @@ const ensureAuthenticated = async (req, res, next) => {
 	}
 };
 
-const fetchUserInfo = async (userid, cn) => {
+const fetchUserInfo = async (userid, cn, req_perms=[]) => {
 	if (!userid && !cn) {
 		return false;
 	}
@@ -240,7 +240,7 @@ const fetchUserInfo = async (userid, cn) => {
 		return {
 			id: userid,
 			displayName: user?.displayname || adUser.displayName,
-			perms: perms.concat(adUser?.perms || [], !SSO_DISABLED ? req?.user?.perms : []),
+			perms: perms.concat(adUser?.perms || [], !SSO_DISABLED ? req_perms : []),
 			sandboxId: user.sandbox_id || adUser.sandboxId,
 			disabled: user.disabled || adUser.disabled,
 			cn: cn || adUser?.cn,
@@ -370,7 +370,7 @@ const permCheck = (req, res, next, permissionToCheckFor = []) => {
 
 const setUserSession = async (req, res) => {
 	try {
-		req.session.user = await fetchUserInfo(req.user.id, req.user?.cn || req.get('x-env-ssl_client_certificate'));
+		req.session.user = await fetchUserInfo(req.user.id, req.user?.cn || req.get('x-env-ssl_client_certificate'), req?.user?.perms);
 		req.session.user.session_id = req.sessionID;
 		SSORedirect(req, res);
 	} catch (err) {
