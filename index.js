@@ -144,6 +144,7 @@ const ensureAuthenticated = async (req, res, next) => {
 			next();
 		}
 	} else {
+		console.log('ensure authenticated for a coupled app req for url: ', req.originalUrl)
 		if (req.isAuthenticated()) {
 			if (!req.user.cn || !req.user.perms) {
 				// User has been authenticated in another app that does not have the CN SAML values
@@ -174,8 +175,9 @@ const ensureAuthenticated = async (req, res, next) => {
 				next();
 			}
 		} else {
+			console.log('req not authenticated and SSO enabled -- user not authorized');
+			console.log(`user id ${req?.user?.id} user cn ${req?.user?.cn} session id ${req?.sessionID}`);
 			return res.status(401).send();
-
 		}
 	}
 };
