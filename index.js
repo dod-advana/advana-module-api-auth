@@ -145,7 +145,9 @@ const ensureAuthenticated = async (req, res, next) => {
 		}
 	} else {
 		console.log('ensure authenticated for a coupled app req for url: ', req.originalUrl)
+		console.log(`req.user.id is ${req?.user?.id}`);
 		if (req.isAuthenticated()) {
+			console.log(`req is authenticated with session id ${req.sessionID}`);
 			if (!req.user.cn || !req.user.perms) {
 				// User has been authenticated in another app that does not have the CN SAML values
 				if (req.get('x-env-ssl_client_certificate')) {
@@ -296,10 +298,18 @@ const setupSaml = (app) => {
 
 	if (!IS_DECOUPLED) {
 		passport.serializeUser((user, done) => {
+			console.log(`serialize user:  ${user} with id ${user?.id}`);
 			done(null, user);
 		});
 		passport.deserializeUser((user, done) => {
-			done(null, user);
+			console.log(`deserialize user:  ${user} with id ${user?.id}`);
+			try {
+				done(null, user);
+			} catch(err) {
+				console.log('deserialize user error')
+				console.log(err)
+				console.log(err.message);
+			}
 		});
 
 		passport.use(new SamlStrategy(
