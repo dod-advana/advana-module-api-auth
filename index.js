@@ -326,8 +326,46 @@ const setupSaml = (app) => {
 				});
 			}));
 
+		app.use((req, res, next) => {
+			console.log(`before passport initialize/session,
+				req.originalUrl ${req.originalUrl}
+				req.sessionID ${req.sessionID}
+				req.session.user ${user} with id ${user?.id}
+				req.session.passport ${req?.session?.passport} 
+				req.session.passport.user ${req?.session?.passport?.user}
+				req.session.passport.user.id ${req?.session?.passport?.user?.id}
+				res get headers ${JSON.stringify(res.getHeaders())}`
+			)
+			next();
+		});
+
 		app.use(passport.initialize());
+		app.use((req, res, next) => {
+			console.log(`between passport initialize/session,
+				req.originalUrl ${req.originalUrl}
+				req.sessionID ${req.sessionID}
+				req.session.user ${user} with id ${user?.id}
+				req.session.passport ${req?.session?.passport} 
+				req.session.passport.user ${req?.session?.passport?.user}
+				req.session.passport.user.id ${req?.session?.passport?.user?.id}
+				res get headers ${JSON.stringify(res.getHeaders())}`
+			)
+			next();
+		});
 		app.use(passport.session());
+
+		app.use((req, res, next) => {
+			console.log(`after passport initialize/session,
+				req.originalUrl ${req.originalUrl}
+				req.sessionID ${req.sessionID}
+				req.session.user ${user} with id ${user?.id}
+				req.session.passport ${req?.session?.passport} 
+				req.session.passport.user ${req?.session?.passport?.user}
+				req.session.passport.user.id ${req?.session?.passport?.user?.id}
+				res get headers ${JSON.stringify(res.getHeaders())}`
+			)
+			next();
+		});
 
 		app.get('/login', (req, res, next) => {
 			const referer = req.get('Referer');
