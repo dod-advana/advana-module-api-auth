@@ -7,14 +7,19 @@ const { Pool } = require('pg');
 
 const session = require('express-session');
 const redis = require('redis');
-const RedisStore = require('connect-redis')(session);
+const RedisStore = require('connect-redis').default;
 
 const passport = require('passport');
 
 const ldap = require('ldapjs');
-const logger = require('@dod-advana/advana-logger');
+const logger = require('@dod-advana/advana/logger');
 const samlStrategy = require('./samlStrategy');
 const AD = require('activedirectory2').promiseWrapper;
+const {
+	createRedisClient,
+	exponentialBackoffReconnect,
+} = require('@advana/redis-client');
+
 
 const SSO_DISABLED = process.env.DISABLE_SSO === 'true';
 const IS_DECOUPLED = process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true'
@@ -33,23 +38,18 @@ const getMaxAge = () => {
 	return MAX_AGE;
 }
 
-const retry_strategy = (options) => {
-	if (options.attempt > 75) {
-		return new Error('Redis connection attempts timed out');
-	}
-
-	// square number of retries to get an exponential curve of retries
-	// return number of milleseconds to wait before retrying again
-	logger.info('Redis attempting to retry connection. Try number: ', options.attempt);
-	return options.attempt * options.attempt * 100;
-};
-const client = redis.createClient({ url: process.env.REDIS_URL, retry_strategy: retry_strategy });
-
 const pool = new Pool({
 	user: process.env.PG_USER,
 	password: process.env.PG_PASSWORD,
 	host: process.env.PG_HOST,
 	database: process.env.PG_UM_DB,
+});
+
+const redisClient = redis.createClient({
+	url: process.env.REDIS_URL,
+	socket: {
+		reconnectStrategy: exponentialBackoffReconnect,
+	}
 });
 
 let keyFileData;
@@ -66,18 +66,25 @@ const private_key =
 		.join('\n') +
 	'\n-----END RSA PRIVATE KEY-----';
 
+	const generateToken = (claims) => {
+		claims['csrf-token'] = CryptoJS.SHA256(secureRandom(10)).toString(CryptoJS.enc.Hex);
+		return jwt.sign(claims, private_key, { algorithm: 'RS256' });
+	}
+	
 const getToken = (req, res) => {
 	try {
-		let csrfHash = CryptoJS.SHA256(secureRandom(10)).toString(CryptoJS.enc.Hex);
-		let jwtClaims = req.session.user;
-		jwtClaims['csrf-token'] = csrfHash;
 
-		let token = jwt.sign(jwtClaims, private_key, { algorithm: 'RS256' });
+		if (req.method === 'POST' && !!req.body?.consent) {
+			req.session.consent = req.body.consent;
+			req.session.user.consent = req.body.consent;
+		}
+		const token = generateToken(req.session.user);
+
 
 		res.status(200).send({ token });
 	} catch (error) {
 		console.info(error);
-		res.status(400).send();
+		res.sendStatus(400);
 	}
 };
 
@@ -95,8 +102,8 @@ const getAllowedOriginMiddleware = (req, res, next) => {
 
 	res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS');
 	res.header(
-		'Access-Control-Allow-Headers',
-		'Accept, Origin, Content-Type, Authorization, Content-Length, X-Requested-With, Accept-Language, SSL_CLIENT_S_DN_CN, X-UA-SIGNATURE, permissions'
+		'Access-Control-Allow-Headers', 
+		'Accept, Origin, Content-Encoding, Content-Type, Authorization, Content-Length, X-Requested-With, Accept-Language, SSL_CLIENT_S_DN_CN, X-UA-SIGNATURE, permissions'
 	);
 	res.header('Access-Control-Allow-Credentials', true);
 	res.header('Access-Control-Expose-Headers', 'Content-Disposition');
@@ -108,19 +115,20 @@ const getAllowedOriginMiddleware = (req, res, next) => {
 	}
 };
 const redisSession = () => {
-	let redisOptions = {
-		host: process.env.REDIS_URL,
-		port: '6379',
-		client: client,
+
+	const secureSession = (process.env.SECURE_SESSION.toLowerCase() === 'true');
+	const sessionCookie = {
+		maxAge: getMaxAge(),
+		sameSite: secureSession ? 'none' : 'lax',
+		secure: secureSession,
+		httpOnly: true,
 	};
 
-	let extraSessionOptions = {};
+	redisClient.connect();
 
 	if (process.env.COOKIE_DOMAIN) {
-		extraSessionOptions.domain = process.env.COOKIE_DOMAIN;
+		sessionCookie.domain = process.env.COOKIE_DOMAIN;
 	}
-
-	const MAX_AGE = getMaxAge();
 
 	let secret = 'keyboard cat';
 	if (process.env.EXPRESS_SESSION_SECRET){
@@ -128,17 +136,11 @@ const redisSession = () => {
 	}
 
 	return session({
-		store: new RedisStore(redisOptions),
-		expires: new Date(Date.now() + MAX_AGE),
+		store: new RedisStore({client: redisClient}),
 		secret: secret,
 		resave: false,
 		saveUninitialized: true,
-		cookie: {
-			maxAge: MAX_AGE,
-			secure: process.env.SECURE_SESSION === 'true',
-			httpOnly: true,
-			...extraSessionOptions,
-		},
+		cookie: sessionCookie,
 	});
 };
 
@@ -241,6 +243,10 @@ const fetchUserInfo = async (userid, cn, reqPerms=[]) => {
 			console.log(`Call to fetchActiveDirectoryUserInfo took ${(t1 - t0) / 1000} seconds.`);
 		}
 
+		let cn = req?.user?.cn || adUser.cn;
+		let displayName = getDisplayName(req, user, adUser, cn);
+
+
 		// Create a new user if they don't exist in the database
 		let perms = [];
 		if (!user.id) {
@@ -251,7 +257,7 @@ const fetchUserInfo = async (userid, cn, reqPerms=[]) => {
 			try {
 				await dbClient.query(addNewUserSQL, [
 					userid,
-					adUser?.displayName || '',
+					displayName,
 					false,
 					new Date(),
 					new Date(),
@@ -261,19 +267,29 @@ const fetchUserInfo = async (userid, cn, reqPerms=[]) => {
 				logger.error(e);
 			}
 		} else {
+			if (!user.displayName) {
+				// user object in postgres has a blank display name; update it
+				if (displayName) {
+					await dbClient.query(`UPDATE users SET displayname = $1 WHERE username = $2`, [displayName, userid]);
+				} else {
+					// what to do? we can't get the display name from anywhere...
+				}
+			}
+
 			perms = await dbClient.query(permsSQL, [userid]);
 			perms = perms.rows.map(({ name }) => name);
 		}
 
 		return {
 			id: userid,
-			displayName: user?.displayname || adUser.displayName,
+			displayName,
 			perms: perms.concat(adUser?.perms || [], !SSO_DISABLED ? reqPerms : []),
 			sandboxId: user.sandbox_id || adUser.sandboxId,
 			disabled: user.disabled || adUser.disabled,
-			cn: cn || adUser?.cn,
+			cn,
 			email: user?.email || adUser?.email,
 			retrievedADPerms: adUser?.perms?.length > 0,
+			consent: req?.session?.consent,
 		};
 	} catch (err) {
 		console.error(err);
@@ -556,6 +572,35 @@ const setupSaml = (app) => {
 		);
 	}
 };
+
+const getDisplayName = (req, user, adUser, userid) => {
+	let ret = '';
+	try {
+		if (req?.user?.displayName) {
+			// grab user display name from the request, if present
+			ret = req.user.displayName;
+		} else if (user?.displayname) {
+			// next, check user object in postgres
+			ret = user.displayname;
+		} else if (adUser?.displayName) {
+			// next check user in AD
+			ret = adUser.displayName;
+		} else {
+			// finally, try to parse userid
+			let parts = userid.split('.');
+			if (parts.length >= 2) {
+				// userid is in LAST.FIRST.MI.EDIPI format
+				// we want display name to be FIRST LAST
+				ret = `${parts[1]} ${parts[0]}`;
+			}
+		}
+	} catch (err) {
+		logger.error(err);
+	} finally {
+		return ret;
+	}
+}
+
 
 // END SAML PORTION
 
