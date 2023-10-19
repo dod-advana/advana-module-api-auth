@@ -1,6 +1,6 @@
 {
   "name": "@dod-advana/advana-api-auth",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "description": "contains middleware shared authentication code",
   "main": "index.js",
   "scripts": {
@@ -19,6 +19,7 @@
   "author": "Advana",
   "license": "ISC",
   "dependencies": {
+    "@advana/redis-client": "4.1.0",
     "activedirectory2": "2.1.0",
     "connect-redis": "7.1.0",
     "crypto-js": "4.1.1",
