@@ -15,11 +15,6 @@ const ldap = require('ldapjs');
 const logger = require('@dod-advana/advana-logger');
 const samlStrategy = require('./samlStrategy');
 const AD = require('activedirectory2').promiseWrapper;
-const {
-	createRedisClient,
-	exponentialBackoffReconnect,
-} = require('@advana/redis-client');
-
 
 const SSO_DISABLED = process.env.DISABLE_SSO === 'true';
 const IS_DECOUPLED = process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true'
@@ -45,13 +40,17 @@ const pool = new Pool({
 	database: process.env.PG_UM_DB,
 });
 
-const redisClient = redis.createClient({
-	url: process.env.REDIS_URL,
-	socket: {
-		reconnectStrategy: exponentialBackoffReconnect,
+const retry_strategy = (options) => {
+	if(options.attempt > 75){
+		return new Error('Redis connection attempts timed out');
 	}
-});
 
+	// square number of retries to get an exponential curve of retries
+	// return number of milleseconds to wait before retrying again
+	logger.info('Redis attempting to retry connection. Try number: ', options.attempt);
+	return options.attempt * options.attempt *100;
+}
+const client = redis.createClient({url: process.env.REDIS_URL, retry_strategy: retry_strategy});
 let keyFileData;
 if (process.env.TLS_KEY) {
 	keyFileData = process.env.TLS_KEY.replace(/\\n/g, '\n');
