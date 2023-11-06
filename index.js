@@ -116,6 +116,11 @@ const getAllowedOriginMiddleware = (req, res, next) => {
 
 const redisSession = () => {
 
+	let redisOptions = {
+		host: process.env.REDIS_URL,
+		port: '6379',
+		client: client
+	};
 	const secureSession = (process.env.SECURE_SESSION.toLowerCase() === 'true');
 	const sessionCookie = {
 		maxAge: getMaxAge(),
@@ -134,7 +139,7 @@ const redisSession = () => {
 	}
 
 	return session({
-		store: new RedisStore({client: redisClient}),
+		store: new RedisStore(redisOptions),
 		secret: secret,
 		resave: false,
 		saveUninitialized: true,
