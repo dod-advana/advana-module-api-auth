@@ -113,6 +113,7 @@ const getAllowedOriginMiddleware = (req, res, next) => {
 		next();
 	}
 };
+
 const redisSession = () => {
 
 	const secureSession = (process.env.SECURE_SESSION.toLowerCase() === 'true');
@@ -122,8 +123,6 @@ const redisSession = () => {
 		secure: secureSession,
 		httpOnly: true,
 	};
-
-	redisClient.connect();
 
 	if (process.env.COOKIE_DOMAIN) {
 		sessionCookie.domain = process.env.COOKIE_DOMAIN;
