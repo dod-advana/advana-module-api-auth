@@ -11,11 +11,13 @@ module.exports = {
 		cert: process.env.SAML_CERT,
 		skipRequestCompression: true,
 		signatureAlgorithm: 'sha512',
-		identifierFormat: 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent'
+		identifierFormat: 'urn:oasis:names:tc:SAML:2.0:nameid-format:persistent',
+		wantAuthnResponseSigned: true,
+		wantAssertionsSigned: false,
 	},
 	SAML_CLAIM_ID: 'urn:oid:1.2.840.113556.1.4.656',
 	SAML_CLAIM_EMAIL: 'urn:oid:0.9.2342.19200300.100.1.3',
 	SAML_CLAIM_DISPLAYNAME: 'urn:oid:2.16.840.1.113730.3.1.241',
 	SAML_CLAIM_PERMS: 'urn:oid:2.5.6.8',
 	SAML_CLAIM_CN: 'urn:oid:2.5.4.3',
-}
+};

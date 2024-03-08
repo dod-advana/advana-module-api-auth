@@ -1,23 +1,28 @@
-const fs = require('fs');
 const CryptoJS = require('crypto-js');
 const jwt = require('jsonwebtoken');
-const RSAkeyDecrypt = require('ssh-key-decrypt');
 const secureRandom = require('secure-random');
 const { Pool } = require('pg');
-
 const session = require('express-session');
-const redis = require('redis');
 const RedisStore = require('connect-redis').default;
-
 const passport = require('passport');
-
 const ldap = require('ldapjs');
-const logger = require('@dod-advana/advana-logger');
-const samlStrategy = require('./samlStrategy');
 const AD = require('activedirectory2').promiseWrapper;
 
 const SSO_DISABLED = process.env.DISABLE_SSO === 'true';
-const IS_DECOUPLED = process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true'
+const IS_DECOUPLED = process.env.IS_DECOUPLED && process.env.IS_DECOUPLED === 'true';
+
+const {
+	createRedisClient,
+	exponentialBackoffReconnect,
+} = require('@advana/redis-client');
+
+const env = require('./environment');
+const {
+	createLoggingContext,
+	getRequestLogger,
+	moduleLogger,
+} = require('./moduleLogger');
+const samlStrategy = require('./samlStrategy');
 
 const getMaxAge = () => {
 	const MAX_MAX_AGE = 43200000; // 12 hours
@@ -31,77 +36,77 @@ const getMaxAge = () => {
 	}
 
 	return MAX_AGE;
-}
+};
 
 const pool = new Pool({
-	user: process.env.PG_USER,
-	password: process.env.PG_PASSWORD,
-	host: process.env.PG_HOST,
-	database: process.env.PG_UM_DB,
+	host: env.PG_HOST,
+	database: env.PG_DATABASE,
+	ssl: env.PG_SSL_REQUIRE ? { ca: env.TLS_CERT_CA } : null,
+	user: env.PG_USERNAME,
+	password: env.PG_PASSWORD,
+	application_name: `@advana/api-auth`,
 });
 
-const retry_strategy = (options) => {
-	if(options.attempt > 75){
-		return new Error('Redis connection attempts timed out');
-	}
-
-	// square number of retries to get an exponential curve of retries
-	// return number of milleseconds to wait before retrying again
-	logger.info('Redis attempting to retry connection. Try number: ', options.attempt);
-	return options.attempt * options.attempt *100;
-}
-const client = redis.createClient({url: process.env.REDIS_URL, retry_strategy: retry_strategy});
-let keyFileData;
-if (process.env.TLS_KEY) {
-	keyFileData = process.env.TLS_KEY.replace(/\\n/g, '\n');
+if (!env.PG_SSL_REQUIRE) {
+	moduleLogger.warn(
+		`SSL disabled for PostgreSQL '${env.PG_DATABASE}' database connection`
+	);
 } else {
-	keyFileData = fs.readFileSync(process.env.TLS_KEY_FILEPATH, 'ascii');
+	moduleLogger.trace(
+		`connected to PostgreSQL '${env.PG_DATABASE}' database via SSL`
+	);
 }
 
-const private_key =
-	'-----BEGIN RSA PRIVATE KEY-----\n' +
-	RSAkeyDecrypt(keyFileData, process.env.TLS_KEY_PASSPHRASE, 'base64')
-		.match(/.{1,64}/g)
-		.join('\n') +
-	'\n-----END RSA PRIVATE KEY-----';
+const generateToken = (claims) => {
+	claims['csrf-token'] = CryptoJS.SHA256(secureRandom(10)).toString(
+		CryptoJS.enc.Hex
+	);
+	return jwt.sign(claims, env.TLS_PRIVATE_KEY, { algorithm: 'RS256' });
+};
 
-	const generateToken = (claims) => {
-		claims['csrf-token'] = CryptoJS.SHA256(secureRandom(10)).toString(CryptoJS.enc.Hex);
-		return jwt.sign(claims, private_key, { algorithm: 'RS256' });
-	}
-	
 const getToken = (req, res) => {
-	try {
+	const requestLogger = getRequestLogger(req);
+	const loggingContext = createLoggingContext(req);
 
+	try {
 		if (req.method === 'POST' && !!req.body?.consent) {
 			req.session.consent = req.body.consent;
 			req.session.user.consent = req.body.consent;
 		}
 		const token = generateToken(req.session.user);
-
-
 		res.status(200).send({ token });
-	} catch (error) {
-		console.info(error);
+	} catch (err) {
+		requestLogger.error({ err, ...loggingContext });
 		res.sendStatus(400);
 	}
 };
 
 const getAllowedOriginMiddleware = (req, res, next) => {
+	const requestLogger = getRequestLogger(req);
+	const loggingContext = createLoggingContext(req);
+
 	try {
-		if (req && req.headers && process.env.APPROVED_API_CALLERS.split(' ').includes(req.hostname)) {
+		if (
+			req &&
+			req.headers &&
+			process.env.APPROVED_API_CALLERS.split(' ').includes(req.hostname)
+		) {
 			res.setHeader('Access-Control-Allow-Origin', req.hostname);
-		} else if (req && req.headers && process.env.APPROVED_API_CALLERS.split(' ').includes(req.headers.origin)) {
+		} else if (
+			req &&
+			req.headers &&
+			process.env.APPROVED_API_CALLERS.split(' ').includes(req.headers.origin)
+		) {
 			res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
 		}
-	} catch (e) {
+	} catch (err) {
 		//this error happens in docker where origin is undefined
-		logger.error(e);
+		requestLogger.error({ err, ...loggingContext });
 	}
 
 	res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS');
 	res.header(
-		'Access-Control-Allow-Headers', 
+		'Access-Control-Allow-Headers',
 		'Accept, Origin, Content-Encoding, Content-Type, Authorization, Content-Length, X-Requested-With, Accept-Language, SSL_CLIENT_S_DN_CN, X-UA-SIGNATURE, permissions'
 	);
 	res.header('Access-Control-Allow-Credentials', true);
@@ -114,39 +119,37 @@ const getAllowedOriginMiddleware = (req, res, next) => {
 	}
 };
 
-const redisSession = () => {
+const redisClient = createRedisClient({
+	name: '@advana/api-auth',
+	socket: {
+		reconnectStrategy: exponentialBackoffReconnect,
+	},
+});
 
-	let redisOptions = {
-		host: process.env.REDIS_URL,
-		port: '6379',
-		client: client
-	};
-	const secureSession = (process.env.SECURE_SESSION.toLowerCase() === 'true');
+const redisSession = () => {
+	const secureSession = process.env.SECURE_SESSION.toLowerCase() === 'true';
 	const sessionCookie = {
 		maxAge: getMaxAge(),
 		sameSite: secureSession ? 'none' : 'lax',
 		secure: secureSession,
 		httpOnly: true,
 	};
-
 	if (process.env.COOKIE_DOMAIN) {
 		sessionCookie.domain = process.env.COOKIE_DOMAIN;
 	}
 
-	let secret = 'keyboard cat';
-	if (process.env.EXPRESS_SESSION_SECRET){
-		secret = process.env.EXPRESS_SESSION_SECRET?.includes('|') ? process.env.EXPRESS_SESSION_SECRET?.split('|') : JSON.parse(process.env.EXPRESS_SESSION_SECRET) || 'keyboard cat';
-	}
+	redisClient.connect();
 
 	return session({
-		store: new RedisStore(redisOptions),
-		secret: secret,
+		store: new RedisStore({ client: redisClient }),
+		secret: JSON.parse(process.env.EXPRESS_SESSION_SECRET),
 		resave: false,
 		saveUninitialized: true,
 		cookie: sessionCookie,
 	});
 };
 
+/*
 const ensureAuthenticated = async (req, res, next) => {
 	// If Decoupled then we need to make the userId off of the cn then create the req.user objects
 	if (IS_DECOUPLED)  {
@@ -213,11 +216,96 @@ const ensureAuthenticated = async (req, res, next) => {
 		}
 	}
 };
+*/
 
-const fetchUserInfo = async (userid, cn, reqPerms=[]) => {
+const ensureAuthenticated = async (req, res, next) => {
+	const requestLogger = getRequestLogger(req);
+	const loggingContext = createLoggingContext(req);
+	
+	// If Decoupled then we need to make the userId off of the cn then create the req.user objects
+	if (IS_DECOUPLED)  {
+		if (!req?.session?.user || !req?.session?.user?.session_id) {
+			let cn = req.get('x-env-ssl_client_certificate');
+			cn = cn?.split('=') || [];
+			if (cn.length > 1) {
+				cn = cn[1];
+			} else {
+				cn = cn[0];
+			}
+			if (!cn) {
+				if (req.get('SSL_CLIENT_S_DN_CN')==='ml-api'){
+					next();
+				} else {
+					return res.status(403).send('Unauthorized');
+				}
+			} else {
+				const cnSplit = cn.split('.');
+				const userID = `${cnSplit[cnSplit.length - 1]}@mil`;
+				const modifiedReq = {user: {}, ...req};
+				modifiedReq.user.id = userID;
+				modifiedReq.user.cn = cn;
 
-	if (!userid && !cn) {
-		return false;
+				req.user = await fetchUserInfo(modifiedReq);
+				req.session.user = req.user;
+				req.session.user.session_id = req.sessionID;
+				req.headers['SSL_CLIENT_S_DN_CN'] = userID;
+				next();
+			}
+		} else {
+			next();
+		}
+	} else if (!env.SSO_DISABLED && req.isAuthenticated()) {
+		if (req.session?.user?.disabled) {
+			requestLogger.warn(loggingContext, 'not authenticated: user disabled');
+			return res.status(403).send();
+		}
+		if (!req?.user?.cn || !req?.user?.perms) {
+			// User has been authenticated in another app that does not have the CN SAML values
+			if (req.get('x-env-ssl_client_certificate')) {
+				req.user.cn = req.get('x-env-ssl_client_certificate');
+			} else {
+				if (req.user.displayName && req.user.id) {
+					const first = req.user.displayName.split(' ')[0];
+					const last = req.user.displayName.split(' ')[1];
+					req.user.cn = `${first}.${last}.MI.${req.user.id}`;
+				} else if (req.user.id) {
+					req.user.cn = `FIRST.LAST.MI.${req.user.id}`;
+				} else {
+					req.user.cn = 'FIRST.LAST.MI.1234567890@mil';
+				}
+				req.user = await fetchUserInfo(req);
+			}
+			req.session.user = req.user;
+			req.session.user.session_id = req.sessionID;
+		}
+		requestLogger.trace(loggingContext, 'authenticated');
+		return next();
+	} else if (env.SSO_DISABLED) {
+		// get user cn from headers
+		if (!req?.user?.cn && req.get('x-env-ssl_client_certificate')) {
+			req.user.cn = req.get('x-env-ssl_client_certificate');
+		}
+		req.session.user = await fetchUserInfo(req);
+		requestLogger.trace(loggingContext, 'authenticated');
+		return next();
+	} else {
+		requestLogger.warn(loggingContext, 'not authenticated');
+		return res.status(401).send();
+	}
+};
+
+const fetchUserInfo = async (req) => {
+	const requestLogger = getRequestLogger(req);
+	const loggingContext = createLoggingContext(req);
+
+	let userid;
+
+	if (IS_DECOUPLED) {
+		userid = req.user.id;
+	} else if (env.SSO_DISABLED && req.user.id) {
+		userid = req.get('SSL_CLIENT_S_DN_CN');
+	} else {
+		userid = req.user.id;
 	}
 
 	let dbClient = await pool.connect();
@@ -243,12 +331,14 @@ const fetchUserInfo = async (userid, cn, reqPerms=[]) => {
 			const t0 = new Date().getTime();
 			adUser = await fetchActiveDirectoryUserInfo(userid);
 			const t1 = new Date().getTime();
-			console.log(`Call to fetchActiveDirectoryUserInfo took ${(t1 - t0) / 1000} seconds.`);
+			requestLogger.trace(
+				loggingContext,
+				`Call to fetchActiveDirectoryUserInfo took ${(t1 - t0) / 1000} seconds.`
+			);
 		}
 
 		let cn = req?.user?.cn || adUser.cn;
 		let displayName = getDisplayName(req, user, adUser, cn);
-
 
 		// Create a new user if they don't exist in the database
 		let perms = [];
@@ -266,14 +356,17 @@ const fetchUserInfo = async (userid, cn, reqPerms=[]) => {
 					new Date(),
 					adUser?.mail || '',
 				]);
-			} catch (e) {
-				logger.error(e);
+			} catch (err) {
+				requestLogger.error({ err, ...loggingContext });
 			}
 		} else {
 			if (!user.displayName) {
 				// user object in postgres has a blank display name; update it
 				if (displayName) {
-					await dbClient.query(`UPDATE users SET displayname = $1 WHERE username = $2`, [displayName, userid]);
+					await dbClient.query(
+						`UPDATE users SET displayname = $1 WHERE username = $2`,
+						[displayName, userid]
+					);
 				} else {
 					// what to do? we can't get the display name from anywhere...
 				}
@@ -286,16 +379,19 @@ const fetchUserInfo = async (userid, cn, reqPerms=[]) => {
 		return {
 			id: userid,
 			displayName,
-			perms: perms.concat(adUser?.perms || [], !SSO_DISABLED ? reqPerms : []),
+			perms: perms.concat(
+				adUser?.perms || [],
+				!env.SSO_DISABLED ? req?.user?.perms : []
+			),
 			sandboxId: user.sandbox_id || adUser.sandboxId,
 			disabled: user.disabled || adUser.disabled,
 			cn,
-			email: user?.email || adUser?.email,
+			email: req?.user?.email || adUser.email,
 			retrievedADPerms: adUser?.perms?.length > 0,
 			consent: req?.session?.consent,
 		};
 	} catch (err) {
-		console.error(err);
+		requestLogger.error({ err, ...loggingContext });
 		return {};
 	} finally {
 		dbClient.release();
@@ -319,14 +415,14 @@ const fetchActiveDirectoryUserInfo = async (userId) => {
 
 		const userObj = await ad.findUser(userId.split('@')[0]);
 		if (!userObj) {
-			console.log('User: ' + userId + ' not found.');
+			moduleLogger.warn('user: ' + userId + ' not found.');
 			return {};
 		}
 
 		const groups = await ad.getGroupMembershipForUser(userId.split('@')[0]);
 		const groupPerms = [];
 		if (!groups) {
-			console.log('User: ' + userId + ' not found.');
+			moduleLogger.warn('user: ' + userId + ' not found.');
 		} else {
 			groups.forEach((group) => {
 				groupPerms.push(group.cn);
@@ -344,7 +440,7 @@ const fetchActiveDirectoryUserInfo = async (userId) => {
 			email: userObj.mail,
 		};
 	} catch (err) {
-		logger.error(err);
+		moduleLogger.error(err);
 		return {};
 	}
 };
@@ -367,7 +463,7 @@ const fetchActiveDirectoryPermissions = async (userId) => {
 		const groups = await ad.getGroupMembershipForUser(userId.split('@')[0]);
 		const groupPerms = [];
 		if (!groups) {
-			console.log('User: ' + userId + ' not found.');
+			moduleLogger.warn('User: ' + userId + ' not found.');
 		} else {
 			groups.forEach((group) => {
 				groupPerms.push(group.cn);
@@ -376,7 +472,7 @@ const fetchActiveDirectoryPermissions = async (userId) => {
 
 		return groupPerms;
 	} catch (err) {
-		logger.error(err);
+		moduleLogger.error(err);
 		return [];
 	}
 };
@@ -396,9 +492,9 @@ function addUserToGroup(groupname, userToAddDn) {
 
 	ldapclient.modify(groupname, change, function (err) {
 		if (err) {
-			console.log('err in add user in a group ' + err);
+			moduleLogger.error(err);
 		} else {
-			console.log('added user in a group');
+			moduleLogger.info('added user in a group');
 		}
 	});
 }
@@ -417,9 +513,9 @@ function removeUserFromGroup(groupname, userToRemoveDn) {
 
 	ldapclient.modify(groupname, change, function (err) {
 		if (err) {
-			console.log('err in remove user from a group ' + err);
+			moduleLogger.error(err);
 		} else {
-			console.log('removed user from a group');
+			moduleLogger.info('removed user from a group');
 		}
 	});
 }
@@ -440,14 +536,20 @@ const hasPerm = (desiredPermission = '', permissions = []) => {
 };
 
 const permCheck = (req, res, next, permissionToCheckFor = []) => {
+	const requestLogger = getRequestLogger(req);
+	const loggingContext = createLoggingContext(req);
+
 	try {
-		let permissions = req.session.user && req.session.user.perms ? req.session.user.perms : [];
+		let permissions =
+			req.session.user && req.session.user.perms ? req.session.user.perms : [];
 		for (let p of permissionToCheckFor) {
 			if (hasPerm(p, permissions)) return next();
 		}
 	} catch (err) {
-		console.error('Error reading request permissions.');
-		console.error(err);
+		requestLogger.error(
+			{ err, ...loggingContext },
+			'Error reading request permissions.'
+		);
 		return res.status(403).send();
 	}
 	return res.status(403).send();
@@ -456,8 +558,12 @@ const permCheck = (req, res, next, permissionToCheckFor = []) => {
 // SAML PORTION
 
 const updateLoginTime = async (req, res) => {
+	const requestLogger = getRequestLogger(req);
+	const loggingContext = createLoggingContext(req);
+
 	let userid;
-	if (SSO_DISABLED) {
+	
+	if (env.SSO_DISABLED) {
 		userid = req.get('SSL_CLIENT_S_DN_CN');
 	} else {
 		userid = req.user.id;
@@ -465,24 +571,34 @@ const updateLoginTime = async (req, res) => {
 
 	let dbClient = await pool.connect();
 
-	try{
+	try {
 		let loginTimeSQL = 'UPDATE users SET lastlogin=NOW() WHERE username=$1';
 		await dbClient.query(loginTimeSQL, [userid]);
 	} catch (err) {
-		logger.error(err)
+		requestLogger.error({ err, ...loggingContext });
 	} finally {
 		dbClient.release();
 	}
-}
+};
 
 const setUserSession = async (req, res) => {
+	const requestLogger = getRequestLogger(req);
+	const loggingContext = createLoggingContext(req);
+
 	try {
-		req.session.user = await fetchUserInfo(req.user.id, req.user?.cn || req.get('x-env-ssl_client_certificate'), req?.user?.perms);
-		req.session.user.session_id = req.sessionID;
-		logger.info(`Setting user session: user - ${req.user.id}, session id - ${req.sessionID}, IP - ${req.ip}`)
+		if (IS_DECOUPLED) {
+			const modifiedReq = {user: {}, ...req};
+			modifiedReq.user.cn = req?.user?.cn || req.get('x-env-ssl_client_certificate');
+			req.session.user = await fetchUserInfo(modifiedReq);
+			req.session.user.session_id = req.sessionID;
+		} else {
+			req.session.user = await fetchUserInfo(req);
+			req.session.user.session_id = req.sessionID;
+		}
+		requestLogger.info(loggingContext, 'session started');
 		SSORedirect(req, res);
 	} catch (err) {
-		console.error(err);
+		requestLogger.error({ err, ...loggingContext });
 	}
 };
 
@@ -497,113 +613,97 @@ const SSORedirect = (req, res) => {
 };
 
 const setupSaml = (app) => {
+	passport.serializeUser((user, done) => {
+		done(null, user);
+	});
+	passport.deserializeUser((user, done) => {
+		done(null, user);
+	});
 
-	if (!SSO_DISABLED) {
-		passport.serializeUser((user, done) => {
-			done(null, user);
-		});
-		passport.deserializeUser((user, done) => {
-			done(null, user);
-		});
+	passport.use(samlStrategy);
 
-		passport.use(samlStrategy);
+	app.use(passport.initialize());
+	app.use(passport.session());
 
-		app.use(passport.initialize());
-		app.use(passport.session());
+	app.get(
+		'/login',
+		(req, res, next) => {
+			const requestLogger = getRequestLogger(req);
+			const loggingContext = createLoggingContext(req);
 
-		app.get(
-			'/login',
-			(req, res, next) => {
-				const referer = req.get('Referer');
-				if (referer) {
-					try {
-						const parsedReferer = new URL(referer);
-						const refererOrigin = parsedReferer.origin.replace('www.', '');
-						const approvedClients = process.env.APPROVED_API_CALLERS.split(' ');
-						// store referer origin in session in order to redirect to correct domain after SAML auth
-						if (approvedClients.includes(refererOrigin) && refererOrigin !== approvedClients[0]) {
-							req.session.AlternateSsoOrigin = refererOrigin;
-						}
-					} catch (error) {
-						logger.info(error);
+			const referer = req.get('Referer');
+			if (referer) {
+				try {
+					const parsedReferer = new URL(referer);
+					const refererOrigin = parsedReferer.origin.replace('www.', '');
+					const approvedClients = process.env.APPROVED_API_CALLERS.split(' ');
+					// store referer origin in session in order to redirect to correct domain after SAML auth
+					if (
+						approvedClients.includes(refererOrigin) &&
+						refererOrigin !== approvedClients[0]
+					) {
+						req.session.AlternateSsoOrigin = refererOrigin;
 					}
+				} catch (err) {
+					requestLogger.error({ err, ...loggingContext });
 				}
-				passport.authenticate('saml', { failureRedirect: '/login/fail' })(req, res, next);
-			},
-			(req, res) => {
-				SSORedirect(req, res);
 			}
-		);
-
-		app.post('/login/callback', passport.authenticate('saml', { failureRedirect: '/login/fail' }), (_req, res) => {
-			res.redirect('/api/setUserSession');
-		});
-
-		app.get('/login/fail', (_req, res) => {
-			res.status(401).send('Login failed');
-		});
-
-		app.get('/logout', function(req, res) {
-			if (req.user == null) {
-			return res.redirect('/');
-			}
-			samlStrategy.logout(req, function(err, uri) {
-				if(!err){
-					return res.redirect("/login")
-				}
-				if(err){
-					logger.info(err)
-				}
-			});
-		});
-
-		app.post('/logout/callback', function(req, res){
-			req.logout();
-			res.redirect('/login');
-		});
-
-		app.get(
-			'/api/setUserSession',
-			(req, res, next) => {
-				if (req.isAuthenticated()) {
-					updateLoginTime(req, res)
-					return next();
-				}
-				else return res.redirect('/login');
-			},
-			setUserSession
-		);
-	}
-};
-
-const getDisplayName = (req, user, adUser, userid) => {
-	let ret = '';
-	try {
-		if (req?.user?.displayName) {
-			// grab user display name from the request, if present
-			ret = req.user.displayName;
-		} else if (user?.displayname) {
-			// next, check user object in postgres
-			ret = user.displayname;
-		} else if (adUser?.displayName) {
-			// next check user in AD
-			ret = adUser.displayName;
-		} else {
-			// finally, try to parse userid
-			let parts = userid.split('.');
-			if (parts.length >= 2) {
-				// userid is in LAST.FIRST.MI.EDIPI format
-				// we want display name to be FIRST LAST
-				ret = `${parts[1]} ${parts[0]}`;
-			}
+			passport.authenticate('saml', { failureRedirect: '/login/fail' })(
+				req,
+				res,
+				next
+			);
+		},
+		(req, res) => {
+			SSORedirect(req, res);
 		}
-	} catch (err) {
-		logger.error(err);
-	} finally {
-		return ret;
-	}
-}
+	);
 
+	app.post(
+		'/login/callback',
+		passport.authenticate('saml', { failureRedirect: '/login/fail' }),
+		(_req, res) => {
+			res.redirect('/api/setUserSession');
+		}
+	);
+
+	app.get('/login/fail', (_req, res) => {
+		res.status(401).send('Login failed');
+	});
+
+	app.get('/logout', function (req, res) {
+		const requestLogger = getRequestLogger(req);
+		const loggingContext = createLoggingContext(req);
+
+		if (req.user == null) {
+			return res.redirect('/');
+		}
+		samlStrategy.logout(req, function (err, uri) {
+			if (!err) {
+				return res.redirect('/login');
+			}
+			if (err) {
+				requestLogger.error({ err, ...loggingContext });
+			}
+		});
+	});
+
+	app.post('/logout/callback', function (req, res) {
+		req.logout();
+		res.redirect('/login');
+	});
+
+	app.get(
+		'/api/setUserSession',
+		(req, res, next) => {
+			if (req.isAuthenticated()) {
+				updateLoginTime(req, res);
+				return next();
+			} else return res.redirect('/login');
+		},
+		setUserSession
+	);
+};
 
 // END SAML PORTION
 
@@ -616,5 +716,36 @@ module.exports = {
 	setUserSession,
 	setupSaml,
 	fetchActiveDirectoryPermissions,
-	getMaxAge
+	getMaxAge,
+};
+
+const getDisplayName = (req, user, adUser, cn) => {
+	const requestLogger = getRequestLogger(req);
+	const loggingContext = createLoggingContext(req);
+
+	let ret = '';
+	try {
+		if (req?.user?.displayName) {
+			// grab user display name from the request, if present
+			ret = req.user.displayName;
+		} else if (user?.displayname) {
+			// next, check user object in postgres
+			ret = user.displayname;
+		} else if (adUser?.displayName) {
+			// next check user in AD
+			ret = adUser.displayName;
+		} else {
+			// finally, try to parse cn
+			let parts = cn.split('.');
+			if (parts.length >= 2) {
+				// cn is in LAST.FIRST.MI.EDIPI format
+				// we want display name to be FIRST LAST
+				ret = `${parts[1]} ${parts[0]}`;
+			}
+		}
+	} catch (err) {
+		requestLogger.error({ err, ...loggingContext });
+	} finally {
+		return ret;
+	}
 };
