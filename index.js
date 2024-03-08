@@ -259,9 +259,32 @@ const ensureAuthenticated = async (req, res, next) => {
 			requestLogger.warn(loggingContext, 'not authenticated: user disabled');
 			return res.status(403).send();
 		}
+		if (!req?.user?.cn || !req?.user?.perms) {
+			// User has been authenticated in another app that does not have the CN SAML values
+			if (req.get('x-env-ssl_client_certificate')) {
+				req.user.cn = req.get('x-env-ssl_client_certificate');
+			} else {
+				if (req.user.displayName && req.user.id) {
+					const first = req.user.displayName.split(' ')[0];
+					const last = req.user.displayName.split(' ')[1];
+					req.user.cn = `${first}.${last}.MI.${req.user.id}`;
+				} else if (req.user.id) {
+					req.user.cn = `FIRST.LAST.MI.${req.user.id}`;
+				} else {
+					req.user.cn = 'FIRST.LAST.MI.1234567890@mil';
+				}
+				req.user = await fetchUserInfo(req);
+			}
+			req.session.user = req.user;
+			req.session.user.session_id = req.sessionID;
+		}
 		requestLogger.trace(loggingContext, 'authenticated');
 		return next();
 	} else if (env.SSO_DISABLED) {
+		// get user cn from headers
+		if (!req?.user?.cn && req.get('x-env-ssl_client_certificate')) {
+			req.user.cn = req.get('x-env-ssl_client_certificate');
+		}
 		req.session.user = await fetchUserInfo(req);
 		requestLogger.trace(loggingContext, 'authenticated');
 		return next();
